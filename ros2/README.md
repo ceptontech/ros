@@ -62,11 +62,13 @@ ros2 run cepton_subscriber cepton_subscriber_node
 ### 2.3 Displaying point cloud in Rviz2
 After installing `rviz` and starting it with `ros2 run rviz2 rviz2`, and also starting the publisher node, do the following configuration in the RVIZ UI to show the proper point cloud:
 
-* Under `global options`, change the `Fixed Frame` setting to read `lidar_frame`
+* Under `global options`, change the `Fixed Frame` setting to read `cepton2`
 * Select `Add Topic` and add the `/cepton_pcl2` topic
 * Deselect `Autocompute Intensity` and change `Max Intensity` to `1`
-
-
+```
+Example of replaying a pcap on RVIZ2: 
+ros2 run cepton_publisher cepton_publisher_node --ros-args -p capture_file:="/path/to/pcap" -p capture_loop:=true
+```
 
 ## 3. Configuration Parameter Arguments
 
