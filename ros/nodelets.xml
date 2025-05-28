@@ -1,0 +1,7 @@
+<library path="lib/libcepton2_ros">
+    <class name="cepton2_ros/PublisherNodelet" type="cepton2_ros::PublisherNodelet" base_class_type="nodelet::Nodelet">
+        <description>
+            This is a nodelet that publishes point information for the Cepton SDK 2.0.
+        </description>
+    </class>
+</library>
