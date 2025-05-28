@@ -1,0 +1,10 @@
+<!--
+    Launches nodelet manager and loads the PubsliherNodelet to it.
+-->
+<launch>
+    <arg name="config_path" default="$(find cepton2_ros)/config/default_params.yaml" doc="Path to the YAML config file"/>
+    
+    <node pkg="nodelet" type="nodelet" name="cepton2_publisher" args="load cepton2_ros/PublisherNodelet cepton_manager" output="screen">
+        <rosparam file="$(arg config_path)"/>
+    </node>
+</launch>

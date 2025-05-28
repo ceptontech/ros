@@ -1,0 +1,22 @@
+# YAML configuration file for loading default parameters into PubsliherNodelet
+capture_path: ""
+capture_loop: false
+half_frequency_mode: false
+include_saturated_points: true
+include_second_return_points: true
+include_invalid_points: false
+include_noise_points: false
+include_blocked_points: true
+output_by_handle: true
+output_by_sn: true
+min_altitude: -90.
+max_altitude: 90.
+min_azimuth: -90.
+max_azimuth: 90.
+min_distance: 0.0
+max_distance: 1000.0
+using_cepton_coordinate_system: true
+
+# In ROS, unlike in ROS2, this needs to be set to an empty 
+# list if not using the expected lidars feature.
+expected_sensor_ips: []
