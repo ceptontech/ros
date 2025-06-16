@@ -129,6 +129,7 @@ void CeptonSubscriber::recv_info(
 
 void CeptonSubscriber::recv_panic(
     const cepton_messages::msg::CeptonPanic::SharedPtr panic) {
+  (void)panic; // to supress unused warning
   printf("Got panic\n");
 }
 
@@ -201,7 +202,7 @@ void export_csv(cepton_messages::msg::CeptonPointData::SharedPtr pPoints) {
   int64_t t             = pPoints->start_timestamp;
   const uint8_t* points = pPoints->points.data();
   for (size_t i = 0; i < pPoints->n_points; i++) {
-    const struct CeptonPoint* pt = (CeptonPoint*)(points + i * pPoints->stride);
+    const struct CeptonPointEx* pt = (const CeptonPointEx *)(points + i * sizeof(CeptonPointEx));
     t += pt->relative_timestamp;
     s << t << "," << pt->x << "," << pt->y << "," << pt->z << ","
       << (int)pt->channel_id << "," << reflectivity_LUT[pt->reflectivity] << ","
@@ -211,8 +212,7 @@ void export_csv(cepton_messages::msg::CeptonPointData::SharedPtr pPoints) {
 
 void CeptonSubscriber::recv_cep_points(
     const cepton_messages::msg::CeptonPointData::SharedPtr points) {
-  printf("Handle:%ld\tNPts:%d\tStride:%d\n", points->handle, points->n_points,
-         points->stride);
+  printf("Handle:%ld\tNPts:%d\t\n", points->handle, points->n_points);
 
   if (export_to_csv_) export_csv(points);
 }
