@@ -36,8 +36,16 @@ target_include_directories(
   cepton_subscriber PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
                            $<INSTALL_INTERFACE:${PROJECT_NAME}/include>)
 # Link ros dependencies
-ament_target_dependencies(cepton_subscriber PUBLIC rclcpp_components rclcpp
-                          std_msgs sensor_msgs cepton_messages)
+target_link_libraries(cepton_subscriber PUBLIC
+  ${cepton_messages_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  rclcpp::rclcpp
+  rclcpp_components::component
+  rclcpp_components::component_manager
+  sensor_msgs::sensor_msgs_library
+)
+
 
 # Install
 install(
