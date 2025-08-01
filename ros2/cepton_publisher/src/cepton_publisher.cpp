@@ -12,7 +12,6 @@
 #include <set>
 
 #include "cepton_messages/cepton_messages.h"
-#include "panic.h"
 
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointField = sensor_msgs::msg::PointField;
@@ -27,191 +26,6 @@ inline void check_sdk_error(int re, const char *msg) {
 }
 
 double degrees_to_radians(double t) { return t * M_PI / 180.0; }
-
-class FaultMonitor {
- public:
-  struct FaultEntries {
-    uint8_t voltage_out_range[8];
-    uint8_t temperature_out_range_komodo;
-    uint8_t temperature_out_range_iox;
-    uint8_t temperature_out_range_iguana;
-    uint8_t temperature_out_range_gecko;
-    uint8_t iguana_iox_comm_crc_error;
-    uint8_t iox_gecko_comm_crc_error;
-    uint8_t gecko_komodo_comm_crc_error;
-    uint8_t iguana_boot_failure;
-    uint8_t phy_sync_failure;
-    uint8_t eth_link_down;
-    uint8_t ptp_expiration;
-    uint8_t thermal_shut_down;
-    uint8_t lasers_partial_block;
-    uint8_t lasers_full_block;
-    uint8_t mmt_interlock;
-    uint8_t iguana_failure;
-    uint8_t fpga_runtime_fail;
-    uint8_t mmt_timeout;
-    uint8_t gecko_boot_failure;
-    uint8_t rsv[5];
-  };
-
- private:
-  static const uint32_t MONITORED_FIELD_COUNT = 32;
-
-  static_assert(sizeof(FaultEntries) == MONITORED_FIELD_COUNT);
-
-  FaultEntries fault_entries_;
-
- public:
-  enum { FAULT_ACTIVE = 0x3 };
-
-  /**
-   * Update the fault entries based on the INFZ
-   */
-  cepton_messages::msg::CeptonPanic update(CeptonSensor const *info,
-                                           int64_t timestamp,
-                                           CeptonSensorHandle handle,
-                                           CeptonPublisher *const) {
-    // Copy the fault entries
-    fault_entries_ =
-        *reinterpret_cast<FaultEntries const *>(info->fault_entries);
-
-    // Return the updated message
-    return get_msg(timestamp, handle);
-  }
-
-  /**
-   * Update the fault entries based on the panic packet
-   */
-  cepton_messages::msg::CeptonPanic update(CeptonPanicMessage const *panic,
-                                           int64_t timestamp,
-                                           CeptonSensorHandle handle,
-                                           CeptonPublisher *const node) {
-    RCLCPP_DEBUG(node->get_logger(), "Received fault identity 0x%08x",
-                 panic->fault_identity);
-    switch (panic->fault_identity) {
-      case VOLTAGE_KOMODO_0V8:  // Voltage out-of-range 0
-        fault_entries_.voltage_out_range[VoltageFault_Komodo_0_8v] =
-            FAULT_ACTIVE;
-        break;
-      case VOLTAGE_KOMODO_1V0:  // Voltage out-of-range 1
-        fault_entries_.voltage_out_range[VoltageFault_Komodo_1_0v] =
-            FAULT_ACTIVE;
-        break;
-      case VOLTAGE_KOMODO_1V8:  // Voltage out-of-range 2
-        fault_entries_.voltage_out_range[VoltageFault_Komodo_1_8v] =
-            FAULT_ACTIVE;
-        break;
-      case VOLTAGE_KOMODO_3V3:  // Voltage out-of-range 3
-        fault_entries_.voltage_out_range[VoltageFault_Komodo_3_3v] =
-            FAULT_ACTIVE;
-        break;
-      case VOLTAGE_MOTOR_5V3:  // Voltage out-of-range 4
-        fault_entries_.voltage_out_range[VoltageFault_Motor_5_3v] =
-            FAULT_ACTIVE;
-        break;
-      case VOLTAGE_OM_5V3:  // Voltage out-of-range 5
-        fault_entries_.voltage_out_range[VoltageFault_OM_5_3v] = FAULT_ACTIVE;
-        break;
-      case VOLTAGE_LASER_32V:  // Voltage out-of-range 6
-        fault_entries_.voltage_out_range[VoltageFault_Laser_32v] = FAULT_ACTIVE;
-        break;
-      case TEMPERATURE_KOMODO_ERROR:  // Komodo temperature out of range
-        fault_entries_.temperature_out_range_komodo = FAULT_ACTIVE;
-        break;
-      case TEMPERATURE_IOX_ERROR:  // IOX temperature out of range
-        fault_entries_.temperature_out_range_iox = FAULT_ACTIVE;
-        break;
-      case TEMPERATURE_IGUANA_ERROR:  // Iguana temperature out of range
-        fault_entries_.temperature_out_range_iguana = FAULT_ACTIVE;
-        break;
-      case TEMPERATURE_GECKO_ERROR:  // Gecko temperature out of range
-        fault_entries_.temperature_out_range_gecko = FAULT_ACTIVE;
-        break;
-      case CHECKSUM_IGUANA_IOX_COMM_ERROR:  // Iguana/IOX comm crc error
-        fault_entries_.iguana_iox_comm_crc_error = FAULT_ACTIVE;
-        break;
-      case CHECKSUM_IOX_GECKO_COMM_ERROR:  // IOX/Gecko comm crc error
-        fault_entries_.iox_gecko_comm_crc_error = FAULT_ACTIVE;
-        break;
-      case CHECKSUM_GECKO_KOMODO_COMM_ERROR:  // Gecko/Komodo comm crc error
-        fault_entries_.gecko_komodo_comm_crc_error = FAULT_ACTIVE;
-        break;
-      case BOOT_IGUANA_FAILURE:  // Iguana boot failure
-        fault_entries_.iguana_boot_failure = FAULT_ACTIVE;
-        break;
-      case ETH_COMM_PTP_SYNC_ERROR:  // PHY sync failure
-        fault_entries_.phy_sync_failure = FAULT_ACTIVE;
-        break;
-      case ETH_LINK_DOWN:  // Ethernet link down
-        fault_entries_.eth_link_down = FAULT_ACTIVE;
-        break;
-      case ETH_COMM_PTP_EXPIRATION:  // PTP master expired
-        fault_entries_.ptp_expiration = FAULT_ACTIVE;
-        break;
-      case TEMPERATURE_THERMAL_SHUTDOWN:  // Thermal shut down
-        fault_entries_.thermal_shut_down = FAULT_ACTIVE;
-        break;
-      case LASERS_PARTIAL_BLOCKAGE:  // Partial blockage
-        fault_entries_.lasers_partial_block = FAULT_ACTIVE;
-        break;
-      case LASERS_FULL_BLOCKAGE:  // Full blockage
-        fault_entries_.lasers_full_block = FAULT_ACTIVE;
-        break;
-      case MMT_MOTION_INTERLOCK:  // MMT interlock
-        fault_entries_.mmt_interlock = FAULT_ACTIVE;
-        break;
-        /*
-        Placeholder: Iguana failure
-        */
-      case FPGA_RUNTIME_FAILURE:  // FPGA runtime failure
-        fault_entries_.fpga_runtime_fail = FAULT_ACTIVE;
-        break;
-      case MMT_TIMEOUT:  // MMT encoder timeout
-        fault_entries_.mmt_timeout = FAULT_ACTIVE;
-        break;
-      case BOOT_GECKO_FAILURE:  // Gecko boot failure
-        fault_entries_.gecko_boot_failure = FAULT_ACTIVE;
-        break;
-    }
-    return get_msg(timestamp, handle);
-  }
-
-  cepton_messages::msg::CeptonPanic get_msg(int64_t timestamp,
-                                            CeptonSensorHandle handle) {
-    auto msg = cepton_messages::msg::CeptonPanic();
-    msg.eth_link_down = fault_entries_.eth_link_down;
-    msg.fpga_runtime_fail = fault_entries_.fpga_runtime_fail;
-    msg.gecko_komodo_comm_crc_error =
-        fault_entries_.gecko_komodo_comm_crc_error;
-    msg.iguana_boot_failure = fault_entries_.iguana_boot_failure;
-    msg.iguana_failure = fault_entries_.iguana_failure;
-    msg.iguana_iox_comm_crc_error = fault_entries_.iguana_iox_comm_crc_error;
-    msg.iox_gecko_comm_crc_error = fault_entries_.iox_gecko_comm_crc_error;
-    msg.lasers_full_block = fault_entries_.lasers_full_block;
-    msg.lasers_partial_block = fault_entries_.lasers_partial_block;
-    msg.mmt_interlock = fault_entries_.mmt_interlock;
-    msg.mmt_timeout = fault_entries_.mmt_timeout;
-    msg.phy_sync_failure = fault_entries_.phy_sync_failure;
-    msg.ptp_expiration = fault_entries_.ptp_expiration;
-    msg.temperature_out_range_gecko =
-        fault_entries_.temperature_out_range_gecko;
-    msg.temperature_out_range_iguana =
-        fault_entries_.temperature_out_range_iguana;
-    msg.temperature_out_range_iox = fault_entries_.temperature_out_range_iox;
-    msg.temperature_out_range_komodo =
-        fault_entries_.temperature_out_range_komodo;
-    msg.thermal_shut_down = fault_entries_.thermal_shut_down;
-    msg.gecko_boot_failure = fault_entries_.gecko_boot_failure;
-
-    msg.voltage_out_range =
-        vector<uint8_t>(fault_entries_.voltage_out_range,
-                        std::end(fault_entries_.voltage_out_range));
-
-    msg.timestamp = timestamp;
-    msg.handle = handle;
-    return msg;
-  }
-};
 
 /**
  * @class Helper class to get the publish parity to get crossed scans.
@@ -344,7 +158,6 @@ int get_non_boundary_parity(const struct CeptonPointEx *points,
 static unordered_map<CeptonSensorHandle, cepton_messages::msg::CeptonPointData>
     cepton_clouds_;
 static unordered_map<CeptonSensorHandle, PointCloud2> sensor_clouds_;
-static unordered_map<CeptonSensorHandle, FaultMonitor> fault_monitors_;
 
 /**
  * @brief Internal points callback invoked by SDK. Publishes points in format
@@ -670,29 +483,6 @@ void sensor_info_callback(CeptonSensorHandle handle,
   node->ensure_info_publisher(handle, "info_handle_" + to_string(handle),
                               node->handle_to_info_publisher);
   node->handle_to_info_publisher[handle]->publish(msg);
-
-  // Update the panic based on INFZ, and publish
-  node->ensure_panic_publisher(handle, "panic_handle_" + to_string(handle));
-  auto panic_message = fault_monitors_[handle].update(
-      info, info->power_up_timestamp - info->time_sync_offset, handle, node);
-  node->handle_to_panic_publisher[handle]->publish(panic_message);
-}
-
-void sensor_panic_callback(CeptonSensorHandle handle,
-                           const CeptonPanicMessage *panic_message,
-                           void *user_data) {
-  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
-  node->ensure_panic_publisher(handle, "panic_handle_" + to_string(handle));
-
-  // Publish the per-sensor panics
-  auto msg = fault_monitors_[handle].update(
-      panic_message,
-      static_cast<int64_t>(panic_message->ptp_timestamp *
-                           /* nsec to usec */ 1e-3),
-      handle, node);
-
-  // Panics are reported immediately when they come in
-  node->handle_to_panic_publisher[handle]->publish(msg);
 }
 
 /// @brief Create a pcl2 publisher and store in the provided map, if not
@@ -721,15 +511,6 @@ void CeptonPublisher::ensure_info_publisher(
   if (!m.count(handle))
     m[handle] =
         create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, 10);
-}
-
-void CeptonPublisher::ensure_panic_publisher(CeptonSensorHandle handle,
-                                             string const &topic) {
-  if (!handle_to_panic_publisher.count(handle)) {
-    fault_monitors_[handle] = FaultMonitor();
-    handle_to_panic_publisher[handle] =
-        create_publisher<cepton_messages::msg::CeptonPanic>(topic, 10);
-  }
 }
 
 CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
@@ -832,14 +613,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     // Register callback
     ret = CeptonListenSensorInfo(sensor_info_callback, this);
     check_sdk_error(ret, "CeptonListenSensorInfo");
-  }
-
-  // ---------------------------------
-  // Set up the sensor panic publishing
-  {
-    // Register callback
-    ret = CeptonListenPanic(sensor_panic_callback, this);
-    check_sdk_error(ret, "CeptonListenSensorPanic");
   }
 
   // -----------------------------------

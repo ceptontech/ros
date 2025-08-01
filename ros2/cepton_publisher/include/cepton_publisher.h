@@ -13,7 +13,6 @@
 #include <tuple>
 #include <vector>
 
-#include "cepton_messages/msg/cepton_panic.hpp"
 #include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
@@ -45,8 +44,6 @@ class CeptonPublisher : public rclcpp::Node {
       CepPointPublisher;
   typedef rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr
       CepInfoPublisher;
-  typedef rclcpp::Publisher<cepton_messages::msg::CeptonPanic>::SharedPtr
-      PanicPublisher;
 
   CeptonPublisher();
   ~CeptonPublisher();
@@ -99,16 +96,6 @@ class CeptonPublisher : public rclcpp::Node {
                                    const struct CeptonSensor *info, void *node);
 
   /**
-   * @brief SDK info callback
-   *
-   * @param handle
-   * @param panic_message
-   * @param node
-   */
-  friend void sensor_panic_callback(CeptonSensorHandle handle,
-                                    const CeptonPanicMessage *panic_message,
-                                    void *node);
-  /**
    * @brief Responsible for publishing the points received from the SDK
    * callback functions. Publish points in format msg::PointCloud2
    *
@@ -144,12 +131,6 @@ class CeptonPublisher : public rclcpp::Node {
    */
   std::unordered_map<CeptonSensorHandle, CepInfoPublisher>
       handle_to_info_publisher;
-
-  /**
-   * @brief Responsible for publishing the per-sensor panic packets
-   */
-  std::unordered_map<CeptonSensorHandle, PanicPublisher>
-      handle_to_panic_publisher;
 
   /**
    * @brief Publishes sensor status messages
@@ -217,8 +198,7 @@ class CeptonPublisher : public rclcpp::Node {
   void ensure_info_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, CepInfoPublisher> &m);
-  void ensure_panic_publisher(CeptonSensorHandle handle,
-                              std::string const &topic);
+
   bool using_cepton_coordinate_system_{true};
 
  private:
