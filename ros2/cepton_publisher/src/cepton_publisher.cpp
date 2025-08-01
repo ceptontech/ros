@@ -1,21 +1,21 @@
 #include "cepton_publisher.h"
 
 #include <arpa/inet.h>
+#include <cepton_sdk3.h>
 #include <math.h>
 #include <netinet/in.h>
 
-#include <cstddef> 
 #include <algorithm>
+#include <cstddef>
 #include <iostream>
-#include <set>
 #include <mutex>
+#include <set>
 
 #include "cepton_messages/cepton_messages.h"
 #include "panic.h"
-#include "sdk_proxy.h"
 
-using PointCloud2  = sensor_msgs::msg::PointCloud2;
-using PointField   = sensor_msgs::msg::PointField;
+using PointCloud2 = sensor_msgs::msg::PointCloud2;
+using PointField = sensor_msgs::msg::PointField;
 using CeptonPoints = cepton_messages::msg::CeptonPointData;
 using namespace std::chrono_literals;
 using namespace std;
@@ -25,8 +25,6 @@ inline void check_sdk_error(int re, const char *msg) {
     cout << "Error: " << re << " " << string(msg) << endl;
   }
 }
-
-static SdkProxy sdk;
 
 double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
@@ -180,21 +178,21 @@ class FaultMonitor {
 
   cepton_messages::msg::CeptonPanic get_msg(int64_t timestamp,
                                             CeptonSensorHandle handle) {
-    auto msg              = cepton_messages::msg::CeptonPanic();
-    msg.eth_link_down     = fault_entries_.eth_link_down;
+    auto msg = cepton_messages::msg::CeptonPanic();
+    msg.eth_link_down = fault_entries_.eth_link_down;
     msg.fpga_runtime_fail = fault_entries_.fpga_runtime_fail;
     msg.gecko_komodo_comm_crc_error =
         fault_entries_.gecko_komodo_comm_crc_error;
-    msg.iguana_boot_failure       = fault_entries_.iguana_boot_failure;
-    msg.iguana_failure            = fault_entries_.iguana_failure;
+    msg.iguana_boot_failure = fault_entries_.iguana_boot_failure;
+    msg.iguana_failure = fault_entries_.iguana_failure;
     msg.iguana_iox_comm_crc_error = fault_entries_.iguana_iox_comm_crc_error;
-    msg.iox_gecko_comm_crc_error  = fault_entries_.iox_gecko_comm_crc_error;
-    msg.lasers_full_block         = fault_entries_.lasers_full_block;
-    msg.lasers_partial_block      = fault_entries_.lasers_partial_block;
-    msg.mmt_interlock             = fault_entries_.mmt_interlock;
-    msg.mmt_timeout               = fault_entries_.mmt_timeout;
-    msg.phy_sync_failure          = fault_entries_.phy_sync_failure;
-    msg.ptp_expiration            = fault_entries_.ptp_expiration;
+    msg.iox_gecko_comm_crc_error = fault_entries_.iox_gecko_comm_crc_error;
+    msg.lasers_full_block = fault_entries_.lasers_full_block;
+    msg.lasers_partial_block = fault_entries_.lasers_partial_block;
+    msg.mmt_interlock = fault_entries_.mmt_interlock;
+    msg.mmt_timeout = fault_entries_.mmt_timeout;
+    msg.phy_sync_failure = fault_entries_.phy_sync_failure;
+    msg.ptp_expiration = fault_entries_.ptp_expiration;
     msg.temperature_out_range_gecko =
         fault_entries_.temperature_out_range_gecko;
     msg.temperature_out_range_iguana =
@@ -202,7 +200,7 @@ class FaultMonitor {
     msg.temperature_out_range_iox = fault_entries_.temperature_out_range_iox;
     msg.temperature_out_range_komodo =
         fault_entries_.temperature_out_range_komodo;
-    msg.thermal_shut_down  = fault_entries_.thermal_shut_down;
+    msg.thermal_shut_down = fault_entries_.thermal_shut_down;
     msg.gecko_boot_failure = fault_entries_.gecko_boot_failure;
 
     msg.voltage_out_range =
@@ -210,7 +208,7 @@ class FaultMonitor {
                         std::end(fault_entries_.voltage_out_range));
 
     msg.timestamp = timestamp;
-    msg.handle    = handle;
+    msg.handle = handle;
     return msg;
   }
 };
@@ -223,7 +221,7 @@ class FaultMonitor {
  */
 class HalfFrequencyParityCalc {
  public:
-  static constexpr auto SIGN_NOT_SET   = 0;
+  static constexpr auto SIGN_NOT_SET = 0;
   static constexpr auto PARITY_NOT_SET = -1;
 
   HalfFrequencyParityCalc() = default;
@@ -232,18 +230,18 @@ class HalfFrequencyParityCalc {
    * @brief Return the parity that should trigger publish of half-frequency
    * frames, or -1 if the parity is not yet determined
    */
-  int update(const struct CeptonPointEx *points, size_t num_points) {  
+  int update(const struct CeptonPointEx *points, size_t num_points) {
     if (publish_parity != PARITY_NOT_SET) {
       // Calc is finished, return the result
       return publish_parity;
     }
     if (last_frame_sign == SIGN_NOT_SET) {
       // If this is the first frame, just get the sign and return
-      last_frame_sign = calc_sign(points, num_points); 
+      last_frame_sign = calc_sign(points, num_points);
       return PARITY_NOT_SET;
     }
     // Get the sign of the new incoming frame
-    int cur_sign = calc_sign(points, num_points); 
+    int cur_sign = calc_sign(points, num_points);
 
     // If the sign changed, then going forward we should publish on this parity
     if (cur_sign != last_frame_sign) {
@@ -264,17 +262,17 @@ class HalfFrequencyParityCalc {
 
  private:
   int last_frame_sign = SIGN_NOT_SET;
-  int publish_parity  = PARITY_NOT_SET;
+  int publish_parity = PARITY_NOT_SET;
 
-  static int calc_sign(const struct CeptonPointEx *points, size_t num_points) { 
+  static int calc_sign(const struct CeptonPointEx *points, size_t num_points) {
     vector<float> azim;
     vector<float> elev;
 
     for (size_t i = 0; i < num_points; i++) {
-      CeptonPointEx const &point = points[i]; 
+      CeptonPointEx const &point = points[i];
       if (point.channel_id == 0) {
-        float ix     = -static_cast<float>(point.x) / point.y;
-        float iz     = -static_cast<float>(point.z) / point.y;
+        float ix = -static_cast<float>(point.x) / point.y;
+        float iz = -static_cast<float>(point.z) / point.y;
         float azim_i = atan(-ix);
         float elev_i = atan2(-iz, sqrt(ix * ix + 1.0));
         azim.push_back(azim_i);
@@ -332,7 +330,8 @@ static const float reflectivity_LUT[256] = {
     40.901f, 42.092f, 43.317f, 44.578f, 45.876f, 47.211f, 48.586f, 50.000f,
 };
 
-int get_non_boundary_parity(const struct CeptonPointEx *points, size_t n_points) { 
+int get_non_boundary_parity(const struct CeptonPointEx *points,
+                            size_t n_points) {
   for (size_t index = 0; index < n_points; index++) {
     CeptonPointEx const &point = points[index];
     if ((point.flags & CEPTON_POINT_FRAME_BOUNDARY) == 0) {
@@ -358,11 +357,9 @@ static unordered_map<CeptonSensorHandle, FaultMonitor> fault_monitors_;
  * @param points
  * @param node A pointer to the CeptonPublisher
  */
-void ceptonFrameCallback(CeptonSensorHandle handle,
-  int64_t start_timestamp,
-  size_t n_points,
-  const struct CeptonPointEx *points,
-  void *user_data) {
+void ceptonFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
+                         size_t n_points, const struct CeptonPointEx *points,
+                         void *user_data) {
   auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
 
   // Update the sensor status
@@ -370,7 +367,6 @@ void ceptonFrameCallback(CeptonSensorHandle handle,
     lock_guard<mutex> lock(node->status_lock_);
     node->last_points_time_[handle] = chrono::system_clock::now();
   }
-
 
   if (cepton_clouds_.count(handle) == 0) {
     cepton_clouds_[handle] = cepton_messages::msg::CeptonPointData();
@@ -381,8 +377,8 @@ void ceptonFrameCallback(CeptonSensorHandle handle,
   cpts.set__n_points(n_points);
   cpts.set__start_timestamp(start_timestamp);
 
-  cpts.points.resize(n_points * sizeof(CeptonPointEx)); 
-  memcpy(cpts.points.data(), points, n_points*sizeof(CeptonPointEx)); 
+  cpts.points.resize(n_points * sizeof(CeptonPointEx));
+  memcpy(cpts.points.data(), points, n_points * sizeof(CeptonPointEx));
 
   // Publish all points
   node->cep_points_publisher->publish(cpts);
@@ -400,11 +396,9 @@ void ceptonFrameCallback(CeptonSensorHandle handle,
     node->serial_cep_points_publisher[handle]->publish(cpts);
 }
 
-void sensorFrameCallback(CeptonSensorHandle handle,
-  int64_t start_timestamp,
-  size_t n_points,
-  const struct CeptonPointEx *points,
-  void *user_data) {
+void sensorFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
+                         size_t n_points, const struct CeptonPointEx *points,
+                         void *user_data) {
   CeptonPublisher *node = reinterpret_cast<CeptonPublisher *>(user_data);
 
   // Update the sensor status
@@ -417,46 +411,47 @@ void sensorFrameCallback(CeptonSensorHandle handle,
   // Update the half-frequency publish parity calc
   static unordered_map<CeptonSensorHandle, HalfFrequencyParityCalc> pc;
   if (pc.find(handle) == pc.end()) pc[handle] = HalfFrequencyParityCalc();
-  auto publish_parity = pc[handle].update(points, n_points);  
+  auto publish_parity = pc[handle].update(points, n_points);
 
   auto half_frequency_mode = node->half_frequency_mode();
 
   // Check if this is a publish frame
-  auto const is_publish_frame = 
-      get_non_boundary_parity(points, n_points) == publish_parity; 
+  auto const is_publish_frame =
+      get_non_boundary_parity(points, n_points) == publish_parity;
 
   // Make sure the points buffer exists
   {
     std::lock_guard<std::mutex> guard(node->handle_to_points_mutex_);
     if (!node->handle_to_points.count(handle))
-    node->handle_to_points[handle] = vector<uint8_t>();         
+      node->handle_to_points[handle] = vector<uint8_t>();
 
     auto &ref = node->handle_to_points[handle];
 
     // If we are publishing every frame, or if the last merge was published for
     // half-frequency mode, then start the buffer from scratch
-    if (!half_frequency_mode || (half_frequency_mode && !is_publish_frame)) { 
-    node->handle_to_start_timestamp[handle] = start_timestamp;
-    ref.resize(n_points * sizeof(CeptonPointEx)); 
-    memcpy(ref.data(), points, n_points * sizeof(CeptonPointEx)); 
+    if (!half_frequency_mode || (half_frequency_mode && !is_publish_frame)) {
+      node->handle_to_start_timestamp[handle] = start_timestamp;
+      ref.resize(n_points * sizeof(CeptonPointEx));
+      memcpy(ref.data(), points, n_points * sizeof(CeptonPointEx));
     } else {
-    // If in half frequency mode and publishing, then extend the existing buffer
-    auto orig_size = ref.size();
-    ref.resize(ref.size() + n_points * sizeof(CeptonPointEx)); 
-    memcpy(ref.data() + orig_size, points, n_points * sizeof(CeptonPointEx));
+      // If in half frequency mode and publishing, then extend the existing
+      // buffer
+      auto orig_size = ref.size();
+      ref.resize(ref.size() + n_points * sizeof(CeptonPointEx));
+      memcpy(ref.data() + orig_size, points, n_points * sizeof(CeptonPointEx));
     }
   }
 
   // Return if not publishing
   if (half_frequency_mode && !is_publish_frame) return;
 
-  node->publish_async(handle);  
+  node->publish_async(handle);
 }
 
 std::mutex data_mutex;
-void CeptonPublisher::publish_async(CeptonSensorHandle handle) { 
+void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
   if (pub_fut_.valid()) pub_fut_.wait();
-  pub_fut_ = std::async(std::launch::async, [this, handle]() { 
+  pub_fut_ = std::async(std::launch::async, [this, handle]() {
     // https://github.com/ros/common_msgs/blob/jade-devel/sensor_msgs/include/sensor_msgs/point_cloud2_iterator.h
     if (sensor_clouds_.count(handle) == 0) {
       sensor_clouds_[handle] = PointCloud2();
@@ -464,9 +459,9 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
 
     int64_t timestamp = handle_to_start_timestamp[handle];
 
-    auto &cloud            = sensor_clouds_[handle];
-    cloud.height           = 1;
-    cloud.width            = 4;
+    auto &cloud = sensor_clouds_[handle];
+    cloud.height = 1;
+    cloud.width = 4;
     cloud.header.stamp.sec = timestamp / 1'000'000;
     // nanosec is the timestamp portion that is truncated from the sec. portion.
     cloud.header.stamp.nanosec = (timestamp % 1'000'000) * 1'000;
@@ -493,19 +488,19 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     );
 
     // resizing should be done before the iters are declared, otw seg faults
-    mod.resize(handle_to_points[handle].size()); 
+    mod.resize(handle_to_points[handle].size());
 
     // Populate the cloud fields
     // Each iterator is optional, and depends on whether the field was added to
     // the cloud.
-    auto x_iter    = make_optional_iter<float>(cloud, "x");
-    auto y_iter    = make_optional_iter<float>(cloud, "y");
-    auto z_iter    = make_optional_iter<float>(cloud, "z");
-    auto i_iter    = make_optional_iter<float>(cloud, "intensity");
-    auto t_iter    = make_optional_iter<int32_t>(cloud, "timestamp_us");
+    auto x_iter = make_optional_iter<float>(cloud, "x");
+    auto y_iter = make_optional_iter<float>(cloud, "y");
+    auto z_iter = make_optional_iter<float>(cloud, "z");
+    auto i_iter = make_optional_iter<float>(cloud, "intensity");
+    auto t_iter = make_optional_iter<int32_t>(cloud, "timestamp_us");
     auto t_us_iter = make_optional_iter<int32_t>(cloud, "timestamp_us");
-    auto f_iter    = make_optional_iter<uint16_t>(cloud, "flags");
-    auto c_iter    = make_optional_iter<uint16_t>(cloud, "channel_id");
+    auto f_iter = make_optional_iter<uint16_t>(cloud, "flags");
+    auto c_iter = make_optional_iter<uint16_t>(cloud, "channel_id");
     auto azim_iter = make_optional_iter<double>(cloud, "azimuth");
     auto elev_iter = make_optional_iter<double>(cloud, "elevation");
     auto dist_iter = make_optional_iter<float>(cloud, "range");
@@ -520,9 +515,9 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
         auto tx = y;
         auto ty = -x;
         auto tz = z;
-        x       = tx;
-        y       = ty;
-        z       = tz;
+        x = tx;
+        y = ty;
+        z = tz;
       }
 
       if (x_iter.has_value()) *(x_iter.value()) = x;
@@ -561,12 +556,12 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     // if previous frame is recorded, populate point cloud with this first
     if (handle_to_points.count(handle)) {
       std::lock_guard<std::mutex> guard(handle_to_points_mutex_);
-      auto const &ref       = handle_to_points[handle];
+      auto const &ref = handle_to_points[handle];
       auto const num_points = ref.size() / sizeof(CeptonPointEx);
       for (unsigned i = 0; i < num_points; i++) {
-        CeptonPointEx const &p0 = 
-               *reinterpret_cast<CeptonPointEx const *>(ref.data() + i * sizeof(CeptonPointEx)); 
-        
+        CeptonPointEx const &p0 = *reinterpret_cast<CeptonPointEx const *>(
+            ref.data() + i * sizeof(CeptonPointEx));
+
         timestamp += p0.relative_timestamp;
         // If point has flags that should not be included (specified by the
         // include_flag), continue
@@ -574,12 +569,13 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
           continue;
         }
 
-        const float x = p0.x * 1.0/65536.0; //0.005; 
-        const float y = p0.y * 1.0/65536.0; //0.005; 
-        const float z = p0.z * 1.0/65536.0; //0.005; 
+        const float x = p0.x * 1.0 / 65536.0;  // 0.005;
+        const float y = p0.y * 1.0 / 65536.0;  // 0.005;
+        const float z = p0.z * 1.0 / 65536.0;  // 0.005;
 
         const float distance_squared = x * x + y * y + z * z;
-        // Filter out points that are labelled ambient but have invalid distance until point flag definitions are finalized (> 500m for now)
+        // Filter out points that are labelled ambient but have invalid distance
+        // until point flag definitions are finalized (> 500m for now)
         if (distance_squared >= 500 * 500) continue;
 
         const float image_x = x / y;
@@ -601,7 +597,7 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
                    static_cast<int32_t>(timestamp / (int64_t)1e6),
                    static_cast<int32_t>(timestamp % (int64_t)1e6), p0.flags,
                    p0.channel_id, azimuth_rad, elevation_rad, range_meas);
-        
+
         move_iters();
 
         kept++;
@@ -638,21 +634,21 @@ void sensor_info_callback(CeptonSensorHandle handle,
     node->handle_to_serial_number_[handle] = info->serial_number;
   }
 
-  auto msg               = cepton_messages::msg::CeptonSensorInfo();
-  msg.serial_number      = info->serial_number;
-  msg.handle             = handle;
-  msg.model_name         = reinterpret_cast<char const *>(info->model_name);
-  msg.model              = info->model;
-  msg.part_number        = info->part_number;
-  msg.firmware_version   = info->firmware_version;
+  auto msg = cepton_messages::msg::CeptonSensorInfo();
+  msg.serial_number = info->serial_number;
+  msg.handle = handle;
+  msg.model_name = reinterpret_cast<char const *>(info->model_name);
+  msg.model = info->model;
+  msg.part_number = info->part_number;
+  msg.firmware_version = info->firmware_version;
   msg.power_up_timestamp = info->power_up_timestamp;
-  msg.time_sync_offset   = info->time_sync_offset;
-  msg.time_sync_drift    = info->time_sync_drift;
-  msg.return_count       = info->return_count;
-  msg.channel_count      = info->channel_count;
-  msg.status_flags       = info->status_flags;
-  msg.temperature        = info->temperature;
-  msg.fault_summary      = info->fault_summary;
+  msg.time_sync_offset = info->time_sync_offset;
+  msg.time_sync_drift = info->time_sync_drift;
+  msg.return_count = info->return_count;
+  msg.channel_count = info->channel_count;
+  msg.status_flags = info->status_flags;
+  msg.temperature = info->temperature;
+  msg.fault_summary = info->fault_summary;
   copy(begin(info->fault_entries), end(info->fault_entries),
        msg.fault_entries.begin());
 
@@ -763,20 +759,13 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("min_distance", 0.0);
   declare_parameter("expected_sensor_ips", vector<string>{});
 
-  // Load the SDK shared object library
-  try {
-    sdk.LoadModule("cepton_sdk2");
-  } catch (exception &e) {
-    cerr << "LoadModule received exception: " << e.what() << endl;
-  }
-
   // Initialize sdk
-  int ret = sdk.Initialize();
+  int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_sdk_error(ret, "CeptonInitialize");
 
   // Get the aggregation mode
   rclcpp::Parameter p_aggregation_mode = get_parameter("aggregation_mode");
-  frame_aggregation_mode_              = (int)p_aggregation_mode.as_int();
+  frame_aggregation_mode_ = (int)p_aggregation_mode.as_int();
   RCLCPP_DEBUG(this->get_logger(), "Using frame aggregation %d",
                frame_aggregation_mode_);
 
@@ -784,7 +773,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
                "========= Point Cloud Output Parameters =========");
   // Check whether to output cepp points
   rclcpp::Parameter pOutputCepp = get_parameter("cepp_output_type");
-  std::string cepp_output_type  = pOutputCepp.as_string();
+  std::string cepp_output_type = pOutputCepp.as_string();
   if (cepp_output_type == "NONE") {
     use_handle_for_cepp_ = use_sn_for_cepp_ = false;
     RCLCPP_DEBUG(this->get_logger(), "Not publishing CEPP points!");
@@ -802,13 +791,14 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     cep_points_publisher = create_publisher<CeptonPoints>("cepton_points", 50);
 
     // Register callback
-    ret = sdk.ListenFrames(frame_aggregation_mode_, ceptonFrameCallback, this);
+    ret = CeptonListenFramesEx(frame_aggregation_mode_, ceptonFrameCallback,
+                               this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
 
   // Check whether to output pcl2 points
   rclcpp::Parameter pOutputPcl2 = get_parameter("pcl2_output_type");
-  std::string pcl2_output_type  = pOutputPcl2.as_string();
+  std::string pcl2_output_type = pOutputPcl2.as_string();
   if (pcl2_output_type == "NONE") {
     use_handle_for_pcl2_ = use_sn_for_pcl2_ = false;
     RCLCPP_DEBUG(this->get_logger(), "Not publishing PCL2 points!");
@@ -826,7 +816,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
 
     // Register callback
-    ret = sdk.ListenFrames(frame_aggregation_mode_, sensorFrameCallback, this);
+    ret = CeptonListenFramesEx(frame_aggregation_mode_, sensorFrameCallback,
+                               this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
   RCLCPP_DEBUG(this->get_logger(),
@@ -839,7 +830,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     info_publisher = create_publisher<cepton_messages::msg::CeptonSensorInfo>(
         "cepton_info", 10);
     // Register callback
-    ret = sdk.ListenInfo(sensor_info_callback, this);
+    ret = CeptonListenSensorInfo(sensor_info_callback, this);
     check_sdk_error(ret, "CeptonListenSensorInfo");
   }
 
@@ -847,7 +838,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   // Set up the sensor panic publishing
   {
     // Register callback
-    ret = sdk.ListenPanic(sensor_panic_callback, this);
+    ret = CeptonListenPanic(sensor_panic_callback, this);
     check_sdk_error(ret, "CeptonListenSensorPanic");
   }
 
@@ -878,10 +869,10 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
           }
         }
         for (auto const &[handle, serial_number] : timed_out_sensors) {
-          auto msg          = cepton_messages::msg::CeptonSensorStatus();
+          auto msg = cepton_messages::msg::CeptonSensorStatus();
           msg.serial_number = serial_number;
-          msg.handle        = handle;
-          msg.status        = SENSOR_TIMED_OUT;
+          msg.handle = handle;
+          msg.status = SENSOR_TIMED_OUT;
           sensor_status_publisher->publish(msg);
         }
         this_thread::sleep_for(chrono::seconds(1));
@@ -934,12 +925,12 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   // Point filter settings
   min_altitude_ = get_parameter("min_altitude").as_double();
   max_altitude_ = get_parameter("max_altitude").as_double();
-  min_azimuth_  = get_parameter("min_azimuth").as_double();
-  max_azimuth_  = get_parameter("max_azimuth").as_double();
+  min_azimuth_ = get_parameter("min_azimuth").as_double();
+  max_azimuth_ = get_parameter("max_azimuth").as_double();
 
   // Clip so that we can safely take the tangent
-  min_azimuth_  = max(-89.9, min_azimuth_);
-  max_azimuth_  = min(89.9, max_azimuth_);
+  min_azimuth_ = max(-89.9, min_azimuth_);
+  max_azimuth_ = min(89.9, max_azimuth_);
   min_altitude_ = max(-89.9, min_altitude_);
   max_altitude_ = min(89.9, max_altitude_);
 
@@ -956,24 +947,24 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   if (!captureFile.as_string().empty()) {
     // If running replay, check for flags
     rclcpp::Parameter capturePlayLoop = get_parameter("capture_loop");
-    int flag                          = 0;
+    int flag = 0;
     if (capturePlayLoop.get_type() !=
             rclcpp::ParameterType::PARAMETER_NOT_SET &&
         capturePlayLoop.as_bool()) {
       flag |= CEPTON_REPLAY_FLAG_PLAY_LOOPED;
     }
-    ret = sdk.ReplayLoadPcap(captureFile.as_string().c_str(), flag,
-                             &replay_handle);
+    ret = CeptonReplayLoadPcap(captureFile.as_string().c_str(), flag,
+                               &replay_handle);
     check_sdk_error(ret, "CeptonReplayLoadPcap");
   } else {
     // Start listening for UDP data on the specified port. Default port is
     // 8808
     rclcpp::Parameter port = get_parameter("sensor_port");
-    int p                  = 8808;
+    int p = 8808;
     if (port.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET)
       p = port.as_int();
     RCLCPP_DEBUG(this->get_logger(), "Start networking on %d", p);
-    sdk.StartNetworkingOnPort(p);
+    CeptonStartNetworkingOnPort(p);
   }
 
   // Init the expected sensors
@@ -1004,7 +995,7 @@ CeptonPublisher::~CeptonPublisher() {
   if (sensor_status_thread.joinable()) sensor_status_thread.join();
 
   // Tear down the sdk
-  sdk.Deinitialize();
+  CeptonDeinitialize();
 }
 
 }  // namespace cepton_ros

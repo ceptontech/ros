@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 
+#include <cepton_sdk3.h>
 #include <dlfcn.h>
 
 #include <chrono>
@@ -16,7 +17,6 @@
 #include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
-#include "libcepton_sdk2.h"  
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
@@ -27,7 +27,7 @@ enum PointFieldOptions : uint16_t {
   SPHERICAL = 1 << 1,
   TIMESTAMP = 1 << 2,
   INTENSITY = 1 << 3,
-  ALL       = 0xFFFF            
+  ALL = 0xFFFF
 };
 
 namespace cepton_ros {
@@ -54,7 +54,7 @@ class CeptonPublisher : public rclcpp::Node {
   bool use_sn_for_cepp() { return use_sn_for_cepp_; }
   bool use_handle_for_pcl2() { return use_handle_for_pcl2_; }
   bool use_sn_for_pcl2() { return use_sn_for_pcl2_; }
-//   uint8_t include_flag() { return include_flag_; }
+  //   uint8_t include_flag() { return include_flag_; }
   uint16_t include_flag() { return include_flag_; }
   bool half_frequency_mode() { return half_frequency_mode_; }
   double min_altitude() { return min_altitude_; }
@@ -65,12 +65,11 @@ class CeptonPublisher : public rclcpp::Node {
  private:
   CeptonReplayHandle replay_handle = 0;
 
-  //Edited
+  // Edited
   friend void sensorFrameCallback(CeptonSensorHandle handle,
-                                       int64_t start_timestamp,
-                                       size_t n_points,
-                                       const struct CeptonPointEx *points,
-                                       void *user_data);
+                                  int64_t start_timestamp, size_t n_points,
+                                  const struct CeptonPointEx *points,
+                                  void *user_data);
   /**
    * @brief Internal points callback invoked by SDK. Publishes points in format
    * CeptonPointDataEx (see cepton_sdk2.h)
@@ -83,18 +82,17 @@ class CeptonPublisher : public rclcpp::Node {
    * @param node
    */
 
-//Edited
+  // Edited
   friend void ceptonFrameCallback(CeptonSensorHandle handle,
-                                       int64_t start_timestamp,
-                                       size_t n_points,
-                                       const struct CeptonPointEx *points,
-                                       void *user_data);
+                                  int64_t start_timestamp, size_t n_points,
+                                  const struct CeptonPointEx *points,
+                                  void *user_data);
 
   /**
    * @brief SDK info callback
    *
    * @param handle
-   * @param info    
+   * @param info
    * @param node
    */
   friend void sensor_info_callback(CeptonSensorHandle handle,
@@ -121,7 +119,7 @@ class CeptonPublisher : public rclcpp::Node {
   std::unordered_map<CeptonSensorHandle, PointPublisher>
       serial_points_publisher;
 
-  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points; 
+  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points;
   std::mutex handle_to_points_mutex_;
   std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp;
 
@@ -182,9 +180,11 @@ class CeptonPublisher : public rclcpp::Node {
     included, while 0 if excluded The pre-included flags are "ignored," either
     because it is for internal use only (hence no config to include them) or
     because it is deprecated.
-    
-    Ambient point information exists for all points, the corresponding flag bit for ambient point is (1 << 15), hence the inclusion to include_flag_*/
-  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY | CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
+
+    Ambient point information exists for all points, the corresponding flag bit
+    for ambient point is (1 << 15), hence the inclusion to include_flag_*/
+  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
+                           CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
 
   bool use_handle_for_cepp_{true};
   bool use_sn_for_cepp_{true};
@@ -257,7 +257,7 @@ class CeptonPublisher : public rclcpp::Node {
                : std::nullopt;
   }
 
-  void publish_async(CeptonSensorHandle handle); 
+  void publish_async(CeptonSensorHandle handle);
 
   std::future<void> pub_fut_;
 };
