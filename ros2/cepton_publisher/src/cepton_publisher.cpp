@@ -25,10 +25,15 @@ inline void check_sdk_error(int re, const char *msg) {
   }
 }
 
-double degrees_to_radians(double t) { return t * M_PI / 180.0; }
+const float SDK_UNIT_TO_METERS = 1.0 / 65536.0;
 
+inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
+
+// Store buffers for cepton point clouds
 static unordered_map<CeptonSensorHandle, cepton_messages::msg::CeptonPointData>
     cepton_clouds_;
+
+// Store buffers for PointCloud2 point clouds
 static unordered_map<CeptonSensorHandle, PointCloud2> sensor_clouds_;
 
 /**
@@ -69,15 +74,14 @@ void ceptonFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
   node->cep_points_publisher->publish(cpts);
 
   // Publish by handle - create publisher if not existing
-  if (node->use_handle_for_cepp()) {
-    node->ensure_cepp_publisher(handle, "cepp_handle_" + to_string(handle),
+  if (node->use_handle_for_cepx_) {
+    node->ensure_cepx_publisher(handle, "cepx_handle_" + to_string(handle),
                                 node->handle_cep_points_publisher);
     node->handle_cep_points_publisher[handle]->publish(cpts);
   }
 
   // Publish by serial number
-  if (node->serial_cep_points_publisher.count(handle) &&
-      node->use_sn_for_cepp())
+  if (node->serial_cep_points_publisher.count(handle) && node->use_sn_for_cepx_)
     node->serial_cep_points_publisher[handle]->publish(cpts);
 }
 
@@ -231,9 +235,9 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
           continue;
         }
 
-        const float x = p0.x * 1.0 / 65536.0;  // 0.005;
-        const float y = p0.y * 1.0 / 65536.0;  // 0.005;
-        const float z = p0.z * 1.0 / 65536.0;  // 0.005;
+        const float x = p0.x * SDK_UNIT_TO_METERS;
+        const float y = p0.y * SDK_UNIT_TO_METERS;
+        const float z = p0.z * SDK_UNIT_TO_METERS;
 
         const float distance_squared = x * x + y * y + z * z;
         // Filter out points that are labelled ambient but have invalid distance
@@ -273,7 +277,7 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     points_publisher->publish(cloud);
 
     // Publish by handle - create publisher if needed
-    if (use_handle_for_pcl2()) {
+    if (use_handle_for_pcl2_) {
       ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
                             handle_points_publisher);
       handle_points_publisher[handle]->publish(cloud);
@@ -281,7 +285,7 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
 
     // If info packet is received to link handle to serial number, publish by
     // serial number
-    if (serial_points_publisher.count(handle) && use_sn_for_pcl2())
+    if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
       serial_points_publisher[handle]->publish(cloud);
   });
 }
@@ -315,11 +319,11 @@ void sensor_info_callback(CeptonSensorHandle handle,
        msg.fault_entries.begin());
 
   // Make sure this serial number has the needed publishers
-  if (node->use_sn_for_cepp())
-    node->ensure_cepp_publisher(handle,
-                                "cepp_serial_" + to_string(info->serial_number),
+  if (node->use_sn_for_cepx_)
+    node->ensure_cepx_publisher(handle,
+                                "cepx_serial_" + to_string(info->serial_number),
                                 node->serial_cep_points_publisher);
-  if (node->use_sn_for_pcl2())
+  if (node->use_sn_for_pcl2_)
     node->ensure_pcl2_publisher(handle,
                                 "serial_" + to_string(info->serial_number),
                                 node->serial_points_publisher);
@@ -348,7 +352,7 @@ void CeptonPublisher::ensure_pcl2_publisher(
 /// not already existing
 /// @param topic
 /// @param m
-void CeptonPublisher::ensure_cepp_publisher(
+void CeptonPublisher::ensure_cepx_publisher(
     CeptonSensorHandle handle, string const &topic,
     unordered_map<CeptonSensorHandle, CepPointPublisher> &m) {
   if (!m.count(handle)) m[handle] = create_publisher<CeptonPoints>(topic, 50);
@@ -370,10 +374,20 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("capture_loop", false);
   declare_parameter("sensor_port", 8808);
   declare_parameter("half_frequency_mode", false);
-  declare_parameter("cepp_output_type",
+
+  // Describes the topics to publish cepp points over.
+  // This could be IP (topics are named by sensor IP address),
+  // SN (topics are named by sensor serial number), NONE (topics
+  // are not advertised for cepp points), or BOTH (topics are
+  // advertised with both IP and SN naming)
+  declare_parameter("cepx_output_type",
                     "BOTH");  // "NONE" or "IP" or "SN" or "BOTH"
+
+  // Same as for cepx_output_type, but instead controls the topics
+  // advertised for PointCloud2 ROS format
   declare_parameter("pcl2_output_type",
                     "BOTH");  // "NONE" or "IP" or "SN" or "BOTH"
+
   declare_parameter("include_saturated_points", true);
   declare_parameter("include_second_return_points", true);
   declare_parameter("include_invalid_points", false);
@@ -401,23 +415,24 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
 
   RCLCPP_DEBUG(this->get_logger(),
                "========= Point Cloud Output Parameters =========");
+
   // Check whether to output cepp points
-  rclcpp::Parameter pOutputCepp = get_parameter("cepp_output_type");
-  std::string cepp_output_type = pOutputCepp.as_string();
-  if (cepp_output_type == "NONE") {
-    use_handle_for_cepp_ = use_sn_for_cepp_ = false;
+  rclcpp::Parameter pOutputCepp = get_parameter("cepx_output_type");
+  std::string cepx_output_type = pOutputCepp.as_string();
+  if (cepx_output_type == "NONE") {
+    use_handle_for_cepx_ = use_sn_for_cepx_ = false;
     RCLCPP_DEBUG(this->get_logger(), "Not publishing CEPP points!");
 
   } else {
     RCLCPP_DEBUG(this->get_logger(), "Publishing CEPP points with: %s",
-                 cepp_output_type.c_str());
-    use_handle_for_cepp_ =
-        cepp_output_type == "IP" || cepp_output_type == "BOTH";
+                 cepx_output_type.c_str());
+    use_handle_for_cepx_ =
+        cepx_output_type == "IP" || cepx_output_type == "BOTH";
     RCLCPP_DEBUG(this->get_logger(), "\tPublishing CEPP points with handle: %s",
-                 use_handle_for_cepp_ ? "true" : "false");
-    use_sn_for_cepp_ = cepp_output_type == "SN" || cepp_output_type == "BOTH";
+                 use_handle_for_cepx_ ? "true" : "false");
+    use_sn_for_cepx_ = cepx_output_type == "SN" || cepx_output_type == "BOTH";
     RCLCPP_DEBUG(this->get_logger(), "\tPublishing CEPP points with SN: %s",
-                 use_sn_for_cepp_ ? "true" : "false");
+                 use_sn_for_cepx_ ? "true" : "false");
     cep_points_publisher = create_publisher<CeptonPoints>("cepton_points", 50);
 
     // Register callback
@@ -540,7 +555,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   RCLCPP_DEBUG(this->get_logger(),
                "=================================================");
 
-  // Coordinate system settings
+  // Coordinate system settings.
   using_cepton_coordinate_system_ =
       get_parameter("using_cepton_coordinate_system").as_bool();
 

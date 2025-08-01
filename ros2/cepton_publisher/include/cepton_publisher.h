@@ -47,17 +47,6 @@ class CeptonPublisher : public rclcpp::Node {
 
   CeptonPublisher();
   ~CeptonPublisher();
-  bool use_handle_for_cepp() { return use_handle_for_cepp_; }
-  bool use_sn_for_cepp() { return use_sn_for_cepp_; }
-  bool use_handle_for_pcl2() { return use_handle_for_pcl2_; }
-  bool use_sn_for_pcl2() { return use_sn_for_pcl2_; }
-  //   uint8_t include_flag() { return include_flag_; }
-  uint16_t include_flag() { return include_flag_; }
-  bool half_frequency_mode() { return half_frequency_mode_; }
-  double min_altitude() { return min_altitude_; }
-  double max_altitude() { return max_altitude_; }
-  double min_azimuth() { return min_azimuth_; }
-  double max_azimuth() { return max_azimuth_; }
 
  private:
   CeptonReplayHandle replay_handle = 0;
@@ -167,8 +156,8 @@ class CeptonPublisher : public rclcpp::Node {
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
 
-  bool use_handle_for_cepp_{true};
-  bool use_sn_for_cepp_{true};
+  bool use_handle_for_cepx_{true};
+  bool use_sn_for_cepx_{true};
   bool use_handle_for_pcl2_{true};
   bool use_sn_for_pcl2_{true};
 
@@ -192,20 +181,26 @@ class CeptonPublisher : public rclcpp::Node {
   void ensure_pcl2_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, PointPublisher> &m);
-  void ensure_cepp_publisher(
+  void ensure_cepx_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, CepPointPublisher> &m);
   void ensure_info_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, CepInfoPublisher> &m);
 
+  /**
+   * @brief Determine which coordinate system is used. Cepton coordinate system
+   * is the system used in the CeptonViewer, where X = right, Y = in, Z = up.
+   * If false, then ROS coordinate system is used (X = in, Y = left, Z = up)
+   *
+   */
   bool using_cepton_coordinate_system_{true};
 
  private:
   /**
    * Not yet fully implemented; leaving the std::optional code in place
-   * because x120 ultra will have much higher-volume data and we may want to
-   * reduce the packet size, or use only certain fields.
+   * because Vista Ultra and Nova Ultra will have much higher-volume data and we
+   * may want to reduce the packet size, or use only certain fields.
    */
   uint32_t point_field_options_ = ALL;
 

@@ -10,7 +10,7 @@
     capture_loop: true
     sensor_port: 8808
     half_frequency_mode: false
-    cepp_output_type: BOTH
+    cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true
     include_second_return_points: false
