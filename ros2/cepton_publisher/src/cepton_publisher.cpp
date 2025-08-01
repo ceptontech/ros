@@ -466,7 +466,7 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     // nanosec is the timestamp portion that is truncated from the sec. portion.
     cloud.header.stamp.nanosec = (timestamp % 1'000'000) * 1'000;
 
-    cloud.header.frame_id = "cepton2";
+    cloud.header.frame_id = "cepton3";
 
     sensor_msgs::PointCloud2Modifier mod(cloud);
 
