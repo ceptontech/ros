@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  test-bindings:
-    name: Test python SDK bindings
+  build-driver:
+    name: Build driver
     runs-on:
       - self-hosted
       - Linux
