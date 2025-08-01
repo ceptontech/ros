@@ -27,87 +27,6 @@ inline void check_sdk_error(int re, const char *msg) {
 
 double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
-/**
- * @class Helper class to get the publish parity to get crossed scans.
- * Parity is returned based on non-boundary points, so be sure to skip boundary
- * points when checking if a frame should be published when using the result of
- * this calc.
- */
-class HalfFrequencyParityCalc {
- public:
-  static constexpr auto SIGN_NOT_SET = 0;
-  static constexpr auto PARITY_NOT_SET = -1;
-
-  HalfFrequencyParityCalc() = default;
-
-  /**
-   * @brief Return the parity that should trigger publish of half-frequency
-   * frames, or -1 if the parity is not yet determined
-   */
-  int update(const struct CeptonPointEx *points, size_t num_points) {
-    if (publish_parity != PARITY_NOT_SET) {
-      // Calc is finished, return the result
-      return publish_parity;
-    }
-    if (last_frame_sign == SIGN_NOT_SET) {
-      // If this is the first frame, just get the sign and return
-      last_frame_sign = calc_sign(points, num_points);
-      return PARITY_NOT_SET;
-    }
-    // Get the sign of the new incoming frame
-    int cur_sign = calc_sign(points, num_points);
-
-    // If the sign changed, then going forward we should publish on this parity
-    if (cur_sign != last_frame_sign) {
-      // Scan forward to find the first non-boundary parity
-      size_t index;
-      for (index = 0; index < num_points; index++) {
-        CeptonPointEx const &point = points[index];
-        if ((point.flags & CEPTON_POINT_FRAME_BOUNDARY) == 0) break;
-      }
-      CeptonPointEx const &sel_point = points[index];
-      publish_parity =
-          static_cast<int>(sel_point.flags & CEPTON_POINT_FRAME_PARITY);
-      return publish_parity;
-    } else {
-      return PARITY_NOT_SET;
-    }
-  }
-
- private:
-  int last_frame_sign = SIGN_NOT_SET;
-  int publish_parity = PARITY_NOT_SET;
-
-  static int calc_sign(const struct CeptonPointEx *points, size_t num_points) {
-    vector<float> azim;
-    vector<float> elev;
-
-    for (size_t i = 0; i < num_points; i++) {
-      CeptonPointEx const &point = points[i];
-      if (point.channel_id == 0) {
-        float ix = -static_cast<float>(point.x) / point.y;
-        float iz = -static_cast<float>(point.z) / point.y;
-        float azim_i = atan(-ix);
-        float elev_i = atan2(-iz, sqrt(ix * ix + 1.0));
-        azim.push_back(azim_i);
-        elev.push_back(elev_i);
-      }
-    }
-    // Calculate the slope
-    float x_mu = accumulate(azim.begin(), azim.end(), 0.0) / azim.size();
-    float y_mu = accumulate(elev.begin(), elev.end(), 0.0) / elev.size();
-
-    float numer = 0;
-    float denom = 0;
-    for (size_t i = 0; i < azim.size(); i++) {
-      numer += (azim[i] - x_mu) * (elev[i] - y_mu);
-      denom += (azim[i] - x_mu) * (azim[i] - x_mu);
-    }
-    float slope = numer / denom;
-    return slope > 0.0 ? 1 : -1;
-  }
-};
-
 // Reflectivity look up table
 static const float reflectivity_LUT[256] = {
     0.000f,  0.010f,  0.020f,  0.030f,  0.040f,  0.050f,  0.060f,  0.070f,
@@ -143,17 +62,6 @@ static const float reflectivity_LUT[256] = {
     32.511f, 33.458f, 34.432f, 35.434f, 36.466f, 37.527f, 38.620f, 39.744f,
     40.901f, 42.092f, 43.317f, 44.578f, 45.876f, 47.211f, 48.586f, 50.000f,
 };
-
-int get_non_boundary_parity(const struct CeptonPointEx *points,
-                            size_t n_points) {
-  for (size_t index = 0; index < n_points; index++) {
-    CeptonPointEx const &point = points[index];
-    if ((point.flags & CEPTON_POINT_FRAME_BOUNDARY) == 0) {
-      return point.flags & CEPTON_POINT_FRAME_PARITY;
-    }
-  }
-  return -1;
-}
 
 static unordered_map<CeptonSensorHandle, cepton_messages::msg::CeptonPointData>
     cepton_clouds_;
@@ -221,17 +129,6 @@ void sensorFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
     node->last_points_time_[handle] = chrono::system_clock::now();
   }
 
-  // Update the half-frequency publish parity calc
-  static unordered_map<CeptonSensorHandle, HalfFrequencyParityCalc> pc;
-  if (pc.find(handle) == pc.end()) pc[handle] = HalfFrequencyParityCalc();
-  auto publish_parity = pc[handle].update(points, n_points);
-
-  auto half_frequency_mode = node->half_frequency_mode();
-
-  // Check if this is a publish frame
-  auto const is_publish_frame =
-      get_non_boundary_parity(points, n_points) == publish_parity;
-
   // Make sure the points buffer exists
   {
     std::lock_guard<std::mutex> guard(node->handle_to_points_mutex_);
@@ -242,26 +139,14 @@ void sensorFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
 
     // If we are publishing every frame, or if the last merge was published for
     // half-frequency mode, then start the buffer from scratch
-    if (!half_frequency_mode || (half_frequency_mode && !is_publish_frame)) {
-      node->handle_to_start_timestamp[handle] = start_timestamp;
-      ref.resize(n_points * sizeof(CeptonPointEx));
-      memcpy(ref.data(), points, n_points * sizeof(CeptonPointEx));
-    } else {
-      // If in half frequency mode and publishing, then extend the existing
-      // buffer
-      auto orig_size = ref.size();
-      ref.resize(ref.size() + n_points * sizeof(CeptonPointEx));
-      memcpy(ref.data() + orig_size, points, n_points * sizeof(CeptonPointEx));
-    }
+    node->handle_to_start_timestamp[handle] = start_timestamp;
+    ref.resize(n_points * sizeof(CeptonPointEx));
+    memcpy(ref.data(), points, n_points * sizeof(CeptonPointEx));
   }
-
-  // Return if not publishing
-  if (half_frequency_mode && !is_publish_frame) return;
 
   node->publish_async(handle);
 }
 
-std::mutex data_mutex;
 void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
   if (pub_fut_.valid()) pub_fut_.wait();
   pub_fut_ = std::async(std::launch::async, [this, handle]() {
