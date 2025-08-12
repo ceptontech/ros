@@ -1,143 +1,205 @@
-# Cepton ROS1
-- [Cepton ROS1](#cepton-ros1)
-  - [1. Overview](#1-overview)
-  - [2. Getting Started](#2-getting-started)
-    - [2.0 Building source locally](#20-building-source-locally)
-    - [2.1 Installation](#21-installation)
-    - [2.2 Launching the driver](#22-launching-the-driver)
-    - [2.3 Visualizing the point cloud](#23-visualizing-the-point-cloud)
-  - [3. Configuration Parameter Arguments](#3-configuration-parameter-arguments)
-  - [4. Points Topic](#4-points-topic)
-  - [5. Sensor Information Topic](#5-sensor-information-topic)
-  - [6. Sensor Panic Topic](#6-sensor-panic-topic)
-  - [7. Known Issues](#7-known-issues)
-
-## 1. Overview
-
-This ROS package provides support for Cepton LiDAR with SDK Version >= 2.0.
-
-The ROS package for Cepton LiDAR with SDK Version <2.0 is located at:
-https://github.com/ceptontech/cepton_sdk_redist/tree/master/ros
-
-## 2. Getting Started
-### 2.0 Building source locally
-
-This step is only needed if building the SDK binaries locally. If you are running a released driver package, the binaries should already be included and you can skip to section 2.1.
-
-See root `README.md`. In short:
+# Setting up and building
 ```bash
-mkdir build-linux
-cd build-linux
-cmake .. -DINSTALL_INPLACE=ON -DINPLACE_ROS1=ON
-cmake --build . --config Release
-cmake --install . --config Release
-```
+# Clone the repo
+git clone git@github.com:ceptontech/ros.git
 
-### 2.1 Installation
-- Install ROS and create catkin workspace. Then, change to the catkin_ws directory.
-- Clone/copy the package into catkin_ws/src/.
+# Set up a catkin workspace and symlink the repo
+mkdir -p catkin_ws/src
+pushd catkin_ws/src
+ln -s $(pwd)/../../ros/ros
+popd
 
-  - Path to this README.md file would be catkin_ws/src/ros/README.md
-
-- Then, run the following:
-```sh
+# Build
+pushd catkin_ws
 catkin_make
-source ./devel/setup.bash
-```
-### 2.2 Launching the driver
-
-To use the driver standalone, you must first launch the manager nodelet
-```sh
-roslaunch cepton2_ros manager.launch
 ```
 
-Then you can launch the Publisher nodelet with the default yaml config file path (default is default_params.yaml)
-```sh
-roslaunch cepton2_ros publisher.launch
+# Configuration 
+# Cepton ROS Publisher Nodelet Configuration Guide
+
+This guide covers all configuration options available for the Cepton ROS Publisher Nodelet based on the `publisher_nodelet.cpp` implementation.
+
+## Basic Configuration
+
+### Data Source Options
+
+#### `capture_path` (string, default: "")
+- **Description**: Path to a PCAP capture file for replay mode
+- **Usage**: When specified, the nodelet will replay data from the file instead of listening to live sensors
+- **Example**: `capture_path: "/path/to/capture.pcap"`
+
+#### `capture_loop` (bool, default: true)
+- **Description**: Whether to loop the capture replay continuously
+- **Usage**: Only applies when `capture_path` is specified
+- **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
+
+### Spatial Filtering
+
+#### `min_altitude` (double, default: varies)
+- **Description**: Minimum altitude angle in degrees for point filtering
+- **Range**: Clamped to [-89.9°, 89.9°] internally
+- **Usage**: Points below this altitude will be filtered out
+
+#### `max_altitude` (double, default: varies)
+- **Description**: Maximum altitude angle in degrees for point filtering
+- **Range**: Clamped to [-89.9°, 89.9°] internally
+- **Usage**: Points above this altitude will be filtered out
+
+#### `min_azimuth` (double, default: varies)
+- **Description**: Minimum azimuth angle in degrees for point filtering
+- **Range**: Clamped to [-89.9°, 89.9°] internally
+- **Usage**: Points to the left of this azimuth will be filtered out
+
+#### `max_azimuth` (double, default: varies)
+- **Description**: Maximum azimuth angle in degrees for point filtering
+- **Range**: Clamped to [-89.9°, 89.9°] internally
+- **Usage**: Points to the right of this azimuth will be filtered out
+
+#### `min_distance` (double, default: varies)
+- **Description**: Minimum distance threshold in meters
+- **Usage**: Points closer than this distance will be filtered out
+
+#### `max_distance` (double, default: varies)
+- **Description**: Maximum distance threshold in meters
+- **Usage**: Points farther than this distance will be filtered out
+
+## Output Configuration
+
+### Publisher Options
+
+#### `output_by_handle` (bool, default: varies)
+- **Description**: Enable publishing point clouds on handle-specific topics
+- **Topics Created**: `cepton3/points_handle_<HANDLE>`
+- **Usage**: Useful when working with multiple sensors and need separate topics per sensor handle
+
+#### `output_by_sn` (bool, default: varies)
+- **Description**: Enable publishing point clouds on serial number-specific topics
+- **Topics Created**: `cepton3/points_sn_<SERIAL_NUMBER>`
+- **Usage**: Useful when working with multiple sensors and need separate topics per serial number
+
+### Frame Processing
+
+#### `aggregation_mode` (int, default: varies)
+- **Description**: Sets the frame aggregation mode for the Cepton SDK
+- **Usage**: Controls how points are aggregated into frames before publishing
+
+## Network Configuration
+
+#### `expected_sensor_ips` (array of strings, default: empty)
+- **Description**: List of expected sensor IP addresses for monitoring
+- **Usage**: Helps with sensor status monitoring and timeout detection
+- **Example**: 
+  ```yaml
+  expected_sensor_ips:
+    - "192.168.1.10"
+    - "192.168.1.11"
+  ```
+
+## Point Quality Filtering
+
+### Point Inclusion Flags
+
+#### `include_saturated_points` (bool, default: true)
+- **Description**: Include points marked as saturated
+- **SDK Flag**: `CEPTON_POINT_SATURATED`
+
+#### `include_second_return_points` (bool, default: true)
+- **Description**: Include second return points
+- **SDK Flag**: `CEPTON_POINT_SECOND_RETURN`
+
+#### `include_invalid_points` (bool, default: false)
+- **Description**: Include invalid points (no return detected)
+- **SDK Flag**: `CEPTON_POINT_NO_RETURN`
+
+#### `include_noise_points` (bool, default: false)
+- **Description**: Include points classified as noise
+- **SDK Flag**: `CEPTON_POINT_NOISE`
+
+#### `include_blocked_points` (bool, default: false)
+- **Description**: Include points that are blocked
+- **SDK Flag**: `CEPTON_POINT_BLOCKED`
+
+**Note**: The following flags are always included internally:
+- `CEPTON_POINT_BLOOMING`
+- `CEPTON_POINT_FRAME_PARITY` 
+- `CEPTON_POINT_FRAME_BOUNDARY`
+
+## Published Topics
+
+### Standard Topics
+
+- **`cepton3/points`**: Main point cloud topic (all sensors combined)
+- **`cepton3/sensor_information`**: Sensor information and status
+- **`cepton3/cepton_sensor_status`**: Sensor status monitoring
+
+### Conditional Topics (when enabled)
+
+- **`cepton3/points_handle_<HANDLE>`**: Per-handle point clouds (when `output_by_handle` is true)
+- **`cepton3/points_sn_<SERIAL_NUMBER>`**: Per-serial-number point clouds (when `output_by_sn` is true)
+- **`cepton3/info_handle_<SERIAL_NUMBER>`**: Per-sensor information topics
+
+## Message Types
+
+### Point Cloud Data (`cepton_ros::Cloud`)
+Contains the following fields per point:
+- `x, y, z`: 3D coordinates (converted to ROS coordinate system)
+- `reflectivity`: Reflectivity value (scaled by 0.01)
+- `relative_timestamp`: Relative timestamp within the frame
+- `channel_id`: Sensor channel identifier
+- `flags`: Point quality flags
+- `azimuth`: Calculated azimuth angle in radians
+- `elevation`: Calculated elevation angle in radians
+- `valid`: Boolean indicating if point has valid return
+
+### Sensor Information (`cepton_ros::SensorInformation`)
+- `handle`: Sensor handle
+- `serial_number`: Sensor serial number
+- `model_name`: Sensor model name
+- `model`: Model identifier
+- `part_number`: Part number
+- `firmware_version`: Firmware version
+- `power_up_timestamp`: Power-up timestamp
+- Various timing and status fields
+
+## Example Configuration
+
+```yaml
+# Data source
+capture_path: ""                    # Empty for live data
+capture_loop: true
+
+# Spatial filtering
+min_altitude: -25.0
+max_altitude: 15.0
+min_azimuth: -60.0
+max_azimuth: 60.0
+min_distance: 0.3
+max_distance: 200.0
+
+# Output options
+output_by_handle: true
+output_by_sn: false
+aggregation_mode: 0
+
+# Network
+expected_sensor_ips:
+  - "192.168.1.201"
+
+# Point filtering
+include_saturated_points: true
+include_second_return_points: true
+include_invalid_points: false
+include_noise_points: false
+include_blocked_points: false
 ```
 
-This loads the parameters from cepton2_ros/config/default_params.yaml into the rosparam server and starts the publisher nodelet to begin publishing point data and sensor information from a live sensor.
+## Coordinate System Transformation
 
-You may also define your own yaml config file and pass in as an argument:
-```sh
-roslaunch cepton2_ros publisher.launch config_path:=<path_to_file>
-```
+The nodelet automatically converts from Cepton's coordinate system to ROS standard:
+- **Cepton**: X (forward), Y (left), Z (up)
+- **ROS**: X (right), Y (forward), Z (up)
+- **Transformation**: `(x_ros, y_ros, z_ros) = (y_cepton, -x_cepton, z_cepton)`
 
-The YAML config is described in Section 4.0.
+## Monitoring and Status
 
-### 2.3 Visualizing the point cloud
-
-The driver publishes sensor_msgs/PointCloud2.h messages which can be visualized in RViz. Currently the frame_id is set to "cepton2" and not configurable, but this may be changed upon request.
-
-Once the publisher is launched, you can open up RViz, add a new PointCloud2 display and configure the topic to match the publisher data. You will need to also configure the "Fixed Frame" under "Global Options" to be `cepton2`.
-
-To see what topics are being published use:
-```sh
-rostopic list
-```
-
-**NOTE**: the channel name of the PointCloud2 display should be changed from "intensity" to "reflectivity" in order to visualize the reflectivity with each point.
-
-## 3. Configuration Parameter Arguments
-Located in ros/config/default_params.yaml :
-* `capture_file` (string): the absolute path to a pcap file for replay
-* `capture_loop` (boolean): whether to replay the pcap in a loop, default=false
-* `half_frequency_mode` (boolean): concatenates 2 frames into 1, publishing them effectively at half rate (not guaranteed every time.), default=false
-* `include_saturated_points` (boolean): include points with the CEPTON_POINT_SATURATED flag bit, default=false
-* `include_second_return_points` (boolean): include points with the CEPTON_POINT_SECOND_RETURN flag bit, default=false
-* `include_invalid_points` (boolean): include points with the CEPTON_POINT_NO_RETURN flag bit, default=false
-* `include_noise_points` (boolean): include points with the CEPTON_POINT_NOISE flag bit, default=false
-* `include_blocked_points` (boolean): include points with the CEPTON_POINT_BLOCKED flag bit, default=false
-* `output_by_handle` (boolean): output topic with handle info as part of the topic name, default=true
-* `output_by_sn` (boolean): output topic with serial number  as part of the topic name, default=true
-* `min_altitude` (double): minimum altitude angle (in degrees) that is allowed, default=-90.0°
-* `max_altitude` (double): maximum altitude angle (in degrees) that is allowed, default=90.0°
-* `min_azimuth` (double): minimum azimuth angle (in degrees) that is allowed, default=-180.0°
-* `max_azimuth` (double): maximum azimuth angle (in degrees) that is allowed, default=180.0°
-
-## 4. Points Topic
-The nodelet will publish messages containing arrays of points with the `CustomCeptonPoint` structure defined in `include/cepton2_ros/point.hpp`.
-
-- x, y, z - cartestian coordinates of the point in meters.
-
-- reflectivity - reflectivity measurement from 0-255%
-
-- relative_timestamp - time in ns from the previous laser firing
-
-- flags - bitwise flags, see include/cepton2_sdk.h for more information
-
-- channel_id - the laser from which the point was detected
-
-- valid - true if the point is valid, false if not
-
-The header timestamp of each message sent with this topic will contain the start_timestamp of the frame. To calculate the precise timestamp of each point you would need to use this value.
-
-The prefix of the point topic is configurable through the yaml file. For each sensor connected there will be a separate topic with a different seriai number suffix. The naming convention is as follows:
-
-```sh
-<topic_prefix>_<serial_num>
-```
-
-Example: If topic prefix is cepton2/points and two sensors (10123 & 10126) are connected, then the nodelet will publish two topics:
-```sh
-cepton2/points_10123
-cepton2/points_10126
-```
-
-## 5. Sensor Information Topic
-The nodelet publishes a sensor information message that is universal for all sensors connected. This topic name can be configurable via the publisher configuration parameters. See `SensorInformation.msg` for the message fields.
-
-## 6. Sensor Panic Topic
-The nodelet also publishes a PANIC packet for when the Lidar detects a fatal fault. The `cepton_panic` topic facilitates panic messages from all lidars. See `SensorPanic.msg` for the message fields.
-
-## 7. Known Issues
-- Publishing sensor transformations is not supported at this time.
-- RViz launch file not working with config.
-
-
-
-
-
-BUILDING
-
-catkin_make -DSDK_DOWNLOAD_LOCATION=/home/cepton/ros
+The nodelet includes built-in sensor monitoring with a 3-second timeout. If a sensor stops sending data for more than 3 seconds, a timeout status message is published on the `cepton3/cepton_sensor_status` topic.
