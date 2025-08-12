@@ -132,7 +132,7 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     // nanosec is the timestamp portion that is truncated from the sec. portion.
     cloud.header.stamp.nanosec = (timestamp % 1'000'000) * 1'000;
 
-    cloud.header.frame_id = "cepton";
+    cloud.header.frame_id = "cepton3";
 
     sensor_msgs::PointCloud2Modifier mod(cloud);
 
@@ -175,17 +175,6 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     auto set_fields = [&](float x, float y, float z, float i, int32_t t,
                           int32_t t_us, uint16_t f, uint16_t c, double azim,
                           double elev, float dist) {
-      // If not using the cepton coordinate system, then swap to using X-forward
-      // coordinate system, where X is forward, Y is left, Z is up
-      if (!using_cepton_coordinate_system_) {
-        auto tx = y;
-        auto ty = -x;
-        auto tz = z;
-        x = tx;
-        y = ty;
-        z = tz;
-      }
-
       if (x_iter.has_value()) *(x_iter.value()) = x;
       if (y_iter.has_value()) *(y_iter.value()) = y;
       if (z_iter.has_value()) *(z_iter.value()) = z;
@@ -235,17 +224,28 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
           continue;
         }
 
-        const float x = p0.x * SDK_UNIT_TO_METERS;
-        const float y = p0.y * SDK_UNIT_TO_METERS;
-        const float z = p0.z * SDK_UNIT_TO_METERS;
+        float x = p0.x * SDK_UNIT_TO_METERS;
+        float y = p0.y * SDK_UNIT_TO_METERS;
+        float z = p0.z * SDK_UNIT_TO_METERS;
+
+        // Convert cepton coordinates to ROS coordinates
+        {
+          auto tx = y;
+          auto ty = -x;
+          auto tz = z;
+          x = tx;
+          y = ty;
+          z = tz;
+        }
 
         const float distance_squared = x * x + y * y + z * z;
+
         // Filter out points that are labelled ambient but have invalid distance
         // until point flag definitions are finalized (> 500m for now)
         if (distance_squared >= 500 * 500) continue;
 
-        const float image_x = x / y;
-        const float image_z = z / y;
+        const float image_x = y / x;  // horizontal tangent
+        const float image_z = z / x;  // vertical tangent
 
         const double azimuth_rad = atan(image_x);
         const double elevation_rad =
@@ -373,7 +373,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("capture_file", "");
   declare_parameter("capture_loop", false);
   declare_parameter("sensor_port", 8808);
-  declare_parameter("half_frequency_mode", false);
 
   // Describes the topics to publish cepp points over.
   // This could be IP (topics are named by sensor IP address),
@@ -398,7 +397,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("min_azimuth", -180.);
   declare_parameter("max_azimuth", 180.);
   declare_parameter("aggregation_mode", 0);
-  declare_parameter("using_cepton_coordinate_system", true);
   declare_parameter("max_distance", numeric_limits<float>::max());
   declare_parameter("min_distance", 0.0);
   declare_parameter("expected_sensor_ips", vector<string>{});

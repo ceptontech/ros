@@ -46,7 +46,6 @@ const auto SENSOR_POINTS_TIMEOUT = std::chrono::seconds(3);
 void PublisherNodelet::onInit() {
   ROS_INFO("PublisherNodeletStarted");
   int ret;
-
   // Get node handle
   node_handle_ = getNodeHandle();
   private_node_handle_ = getPrivateNodeHandle();
