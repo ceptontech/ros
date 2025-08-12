@@ -15,7 +15,7 @@ jobs:
       - X64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Build docker image
         run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile
