@@ -13,7 +13,7 @@ struct Point {
   float x;
   float y;
   float z;
-  float reflectivity;
+  float intensity;
   uint8_t relative_timestamp;
   uint8_t flags;
   uint8_t channel_id;
@@ -31,7 +31,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
     (float, x, x)
     (float, y, y)
     (float, z, z)
-    (float, reflectivity, reflectivity)
+    (float, intensity, intensity)
     (std::uint8_t, relative_timestamp, relative_timestamp)
     (std::uint8_t, flags, flags)
     (std::uint8_t, channel_id, channel_id)

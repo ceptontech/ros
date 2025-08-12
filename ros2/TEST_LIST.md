@@ -46,3 +46,8 @@
 * Change the `min_altitude` to 0.
 * On reloading the rviz config, you should only see points from the top half of the FOV
 
+# Check for live sensor behavior
+* Sensor time-out - no expected IPs
+* Sensor time-out - with expected IPs
+
+Monitor the `cepton_sensor_status` topic
