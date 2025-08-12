@@ -8,10 +8,10 @@ include_noise_points: false
 include_blocked_points: true
 output_by_handle: true
 output_by_sn: true
-min_altitude: -0.
+min_altitude: -90.
 max_altitude: 90.
 min_azimuth: -90.
-max_azimuth: 0.
+max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
 

@@ -93,13 +93,7 @@ foreach(name IN LISTS CEPTON_ROS_LIBRARIES)
   target_include_directories(
     ${name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
                    $<INSTALL_INTERFACE:include>)
-  if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
-    target_link_libraries(${name} ${catkin_LIBRARIES} ${CEPTON_SDK3_LIB})
-  elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
-    target_link_libraries(${name} ${catkin_LIBRARIES} ${CEPTON_SDK3_LIB})
-  else()
-    message("NO LIBRARY FOUND MATCHING PROCESSOR")
-  endif()
+  target_link_libraries(${name} ${catkin_LIBRARIES} ${CEPTON_SDK3_LIB})
   add_dependencies(${name} cepton_ros_generate_messages_cpp)
 endforeach()
 

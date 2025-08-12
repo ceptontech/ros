@@ -1,10 +1,10 @@
+
 # Basic setup
 * Create your catkin workspace 
 * Go to `catkin_ws/src` and symlink the ros package
     * `ln -s /path/to/ros/ros`
 * Build (from `catkin_ws`)
     `catkin_make`
-
 
 # Can get points in the subscriber
 * Launch the manager
