@@ -9,9 +9,7 @@ on:
 jobs:
   build-driver:
     name: Build driver
-    runs-on:
-      - Linux
-      - X64
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
