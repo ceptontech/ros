@@ -42,24 +42,14 @@ add_message_files(
 set(SDK_VERSION 3.0.18.0)
 
 
-# The folder where the SDK download is located.
-# For example, if you had downloaded and unzipped the SDK to /home/user/Downloads/cepton-sdk-3.0.18,
-# then this should be set to /home/user/Downloads.
-# set(SDK_DOWNLOAD_LOCATION "")
-
-
-# if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
-#   set(SDK_SOURCE  ${PROJECT_SOURCE_DIR}/../../cepton-sdk-${SDK_VERSION}/lib/linux-x64)
-# elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
-#   set(SDK_SOURCE ${PROJECT_SOURCE_DIR}/../../cepton-sdk-${SDK_VERSION}/lib/linux-arm64)
-# else()
-#   message("NO LIBRARY FOUND MATCHING PROCESSOR")
-# endif()
+# Get the path of this cmake lists file. We'll use it to find the SDK which should
+# have also been downloaded as part of the repo
+get_filename_component(ROS_PATH "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
-  set(SDK_SOURCE  ${SDK_DOWNLOAD_LOCATION}/cepton-sdk-${SDK_VERSION}/lib/linux-x64)
+  set(SDK_SOURCE  ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/lib/linux-x64)
 elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
-  set(SDK_SOURCE ${SDK_DOWNLOAD_LOCATION}/cepton-sdk-${SDK_VERSION}/lib/linux-arm64)
+  set(SDK_SOURCE ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/lib/linux-arm64)
 else()
   message("NO LIBRARY FOUND MATCHING PROCESSOR")
 endif()
@@ -68,7 +58,7 @@ endif()
 # Then glob the shared objects
 file(GLOB SDK_BINARIES ${SDK_SOURCE}/*)
 set(CEPTON_SDK3_LIB ${SDK_SOURCE}/libcepton_sdk3.so)
-set(CEPTON_SDK3_INCLUDE ${SDK_DOWNLOAD_LOCATION}/cepton-sdk-${SDK_VERSION}/include)
+set(CEPTON_SDK3_INCLUDE ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/include)
 
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN/..")
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN/../lib")
