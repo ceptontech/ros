@@ -305,7 +305,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       cp.x = x;
       cp.y = y;
       cp.z = z;
-      cp.reflectivity = p.reflectivity * 0.01;
+      cp.intensity = p.reflectivity * 0.01;
       cp.relative_timestamp = p.relative_timestamp;
       cp.channel_id = p.channel_id;
       cp.flags = p.flags;
