@@ -12,7 +12,8 @@
                 "/home/cepton/catkin_ws/src/ros/include",
                 "/usr/include/pcl-1.10/",
                 "/usr/include/eigen3/",
-                "/home/cepton/catkin_ws/devel/include/"
+                "/home/cepton/catkin_ws/devel/include"
+                
             ]
         }
     ],

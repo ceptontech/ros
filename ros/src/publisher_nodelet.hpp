@@ -31,6 +31,10 @@ namespace cepton_ros {
  **/
 class PublisherNodelet : public nodelet::Nodelet {
   using PublisherMap = std::unordered_map<CeptonSensorHandle, ros::Publisher>;
+  using TimerMap =
+      std::unordered_map<CeptonSensorHandle,
+                         std::chrono::time_point<std::chrono::system_clock>>;
+  using SerialNumberMap = std::unordered_map<CeptonSensorHandle, uint32_t>;
 
  public:
   ~PublisherNodelet();
@@ -46,33 +50,55 @@ class PublisherNodelet : public nodelet::Nodelet {
   void onInit() override;
 
  private:
-  CeptonSensorErrorCallback error_callback;
-
+  /** ROS node handle for public fields */
   ros::NodeHandle node_handle_;
+
+  /** ROS node handle for private fields */
   ros::NodeHandle private_node_handle_;
+
+  /** Timer to watch for shutdown condition */
   ros::Timer watchdog_timer_;
+
+  /** Publisher for sending points of all lidars */
   ros::Publisher points_publisher_;
+
+  /** Publisher for sending points of all sensor infos */
   ros::Publisher sensor_info_publisher_;
 
+  /** Publisher map for the per-sensor points (named by sensor handle) */
   PublisherMap handle_points_publisher_;
-  PublisherMap serial_points_publisher_;
-  PublisherMap handle_info_publisher_;
-  PublisherMap handle_panic_publisher_;
 
+  /** Publisher map for the per-sensor points (named by serial number) */
+  PublisherMap serial_points_publisher_;
+
+  /** Publisher map for the per-sensor points (named by sensor handle) */
+  PublisherMap handle_info_publisher_;
+
+  /** Publisher for the status messages */
   ros::Publisher sensor_status_publisher_;
 
+  /**
+   * Flag that is populated by settings, telling the nodelet which points
+   * should be included in the output messages
+   */
   uint8_t include_flag_;
   CeptonReplayHandle replay_handle_{0};
 
-  bool is_half_frequency_mode_{false};
+  /** If set to true, the nodelet will advertise topics by sensor handle */
   bool output_by_handle_{true};
+
+  /** If set to true, the nodelet will advertise topics by serial number */
   bool output_by_sn_{true};
 
+  /** Altitude filter, in degrees */
   double min_altitude_{-90.};
   double max_altitude_{90.};
-  double min_azimuth_ = {-180};
-  double max_azimuth_{180.};
 
+  /** Azimuth filter, in degrees */
+  double min_azimuth_ = {-90.0};
+  double max_azimuth_{90.};
+
+  /** Tangent limits (derived from azimuth and altitude filter) */
   double min_image_x_{0.0};
   double max_image_x_{0.0};
   double min_image_z_{0.0};
@@ -81,27 +107,25 @@ class PublisherNodelet : public nodelet::Nodelet {
   double min_distance_{0.0};
   double max_distance_{std::numeric_limits<float>::max()};
 
-  bool using_cepton_coordinate_system_{true};
-
+  /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
 
-  int half_frequency_publish_parity_{-1};
-  int frame_aggregation_mode_{CEPTON_AGGREGATION_MODE_NATURAL};
+  /** Future for the publish process */
   std::future<void> pub_fut_;
 
   void publish_async(CeptonSensorHandle handle);
 
   std::mutex status_lock_;
-  std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp_;
-  std::unordered_map<CeptonSensorHandle, std::vector<CeptonPointEx>>
-      handle_to_points_;
-  std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud>
-      rostopic_point_clouds_;
-  std::unordered_map<CeptonSensorHandle,
-                     std::chrono::time_point<std::chrono::system_clock>>
-      last_points_time_;
+
+  /** Monitor the starting timestamp of each frame */
+  TimerMap last_points_time_;
+
+  /** Status monitor thread */
   std::thread sensor_status_thread;
-  std::unordered_map<CeptonSensorHandle, uint32_t> handle_to_serial_number_;
+
+  /** Store the handle to serial number mappings */
+  SerialNumberMap handle_to_serial_number_;
+
   bool stopping_{false};
 };
 

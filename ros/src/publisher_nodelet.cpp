@@ -11,10 +11,14 @@
 #include <vector>
 
 PLUGINLIB_EXPORT_CLASS(cepton_ros::PublisherNodelet, nodelet::Nodelet);
+
 inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
 namespace cepton_ros {
 
+/**
+ * SDK callback
+ */
 void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
                  size_t n_points, const struct CeptonPointEx *points,
                  void *user_data) {
@@ -22,6 +26,9 @@ void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
       handle, start_timestamp, n_points, points);
 }
 
+/**
+ * SDK callback
+ */
 void on_sensor_info(CeptonSensorHandle handle, const struct CeptonSensor *info,
                     void *user_data) {
   reinterpret_cast<PublisherNodelet *>(user_data)->publish_sensor_info(info);
@@ -41,16 +48,20 @@ void PublisherNodelet::check_api_error(int err, char const *api) {
   }
 }
 
+/**
+ * Sensors are reported as "timed-out" after this duration, in the sensor status
+ * topic
+ */
 const auto SENSOR_POINTS_TIMEOUT = std::chrono::seconds(3);
 
 void PublisherNodelet::onInit() {
   ROS_INFO("PublisherNodeletStarted");
+
   int ret;
-  // Get node handle
   node_handle_ = getNodeHandle();
   private_node_handle_ = getPrivateNodeHandle();
 
-  // Get Parameters
+  // Get parameters
   std::string capture_path = "";
   private_node_handle_.param("capture_path", capture_path, capture_path);
 
@@ -83,10 +94,6 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("output_by_handle", output_by_handle_,
                              output_by_handle_);
   private_node_handle_.param("output_by_sn", output_by_sn_, output_by_sn_);
-
-  private_node_handle_.param("aggregation_mode", frame_aggregation_mode_,
-                             frame_aggregation_mode_);
-
   private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_,
                              expected_sensor_ips_);
 
@@ -150,15 +157,15 @@ void PublisherNodelet::onInit() {
   }
 
   // Listen for frames
-  ret = CeptonListenFramesEx(frame_aggregation_mode_, on_ex_frame, this);
+  ret =
+      CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame, this);
   check_api_error(ret, "CeptonListenFrames");
 
   // Listen for sensor info
   ret = CeptonListenSensorInfo(on_sensor_info, this);
   check_api_error(ret, "CeptonListenSensorInfo");
 
-  // Loop until replay is finished
-  // Start watchdog timer
+  // Start watchdog timer, if using pcap replay
   if (!capture_path.empty()) {
     watchdog_timer_ = node_handle_.createTimer(
         ros::Duration(0.1), [&](const ros::TimerEvent &event) {
@@ -217,7 +224,7 @@ void PublisherNodelet::onInit() {
     });
   }
 
-  // Set up the expected IPs
+  // Set up the expected IPs (convert IP strings to u32)
   for (auto const &expected_ip : expected_sensor_ips_) {
     NODELET_INFO("[%s] Adding expected IP %s\n", getName().c_str(),
                  expected_ip.c_str());
@@ -227,71 +234,46 @@ void PublisherNodelet::onInit() {
     last_points_time_[__bswap_32(addr.s_addr)] =
         std::chrono::system_clock::now();
   }
-
-}  // PublisherNodelet::onInit
+}
 
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
                                       int64_t start_timestamp, size_t n_points,
                                       const CeptonPointEx *points) {
+  // Buffer to build the output cloud
+  static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
+
   // Update the sensor status
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     last_points_time_[handle] = std::chrono::system_clock::now();
   }
 
-  // Make sure the points buffer exists
-  if (!handle_to_points_.count(handle))
-    handle_to_points_[handle] = std::vector<CeptonPointEx>();
-
-  // Copy the points to the reserved buffer (so that we can publish
-  // them on separate thread, without blocking the SDK)
-  auto &ref = handle_to_points_[handle];
-  handle_to_start_timestamp_[handle] = start_timestamp;
-  ref.resize(n_points);
-  std::copy(points, points + n_points, ref.begin());
-
-  // Publish the points
-  this->publish_async(handle);
-}
-
-void PublisherNodelet::publish_async(CeptonSensorHandle handle) {
-  // If the last publish is still pending, wait for it to finish
-  if (pub_fut_.valid()) pub_fut_.wait();
-
-  pub_fut_ = std::async(std::launch::async, [this, handle]() {
-    // Check for cached output points
-    if (!rostopic_point_clouds_.count(handle)) {
-      rostopic_point_clouds_[handle] = cepton_ros::Cloud();
-    }
-
-    auto const &cepp_points = handle_to_points_[handle];
-    auto const *points = cepp_points.data();
-
-    auto max_num_points = cepp_points.size();
-
+  // Prep the cloud
+  {
     // Modify the same cloud buffer each time to avoid realloc
-    auto &cloud = rostopic_point_clouds_[handle];
+    auto &cloud = clouds[handle];
     cloud.clear();
-    cloud.header.stamp = handle_to_start_timestamp_[handle];
+    cloud.header.stamp = start_timestamp;
     cloud.header.frame_id = "cepton3";
     cloud.height = 1;
-    cloud.width = max_num_points;
-    cloud.reserve(max_num_points);
+    cloud.width = n_points;
+    cloud.reserve(n_points);
 
     const auto max_distance_squared = max_distance_ * max_distance_;
     const auto min_distance_squared = min_distance_ * min_distance_;
 
     // Loop and add the points
     int kept = 0;
-    cepton_ros::Point cp;
     int noise_count = 0;
-    for (int i = 0; i < max_num_points; ++i) {
+    for (int i = 0; i < n_points; ++i) {
+      cepton_ros::Point cp;
       auto const &p = points[i];
 
       // If point has flags that should not be included (specified by the
       // include_flag), continue
       if ((~include_flag_ & p.flags) != 0) continue;
 
+      // Convert the units to meters (SDK unit is 1.0 / 65536.0)
       float x = static_cast<float>(p.x) / 65536.0;
       float y = static_cast<float>(p.y) / 65536.0;
       float z = static_cast<float>(p.z) / 65536.0;
@@ -334,20 +316,38 @@ void PublisherNodelet::publish_async(CeptonSensorHandle handle) {
       cloud.points.push_back(cp);
       kept++;
     }
+    // Resize according to number of kept points
     cloud.width = kept;
     if (kept > 0) cloud.points.resize(kept);
+  }
 
-    // Publish points
-    points_publisher_.publish(cloud);
+  // Publish the point cloud
+  {
+    // If the last publish is still pending, wait for it to finish
+    if (pub_fut_.valid()) pub_fut_.wait();
 
-    // Publish by handle
-    if (handle_points_publisher_.count(handle) && output_by_handle_)
-      handle_points_publisher_[handle].publish(cloud);
+    // Launch a new process to do the publishing
+    pub_fut_ =
+        std::async(std::launch::async, [this, handle, start_timestamp]() {
+          // Make sure there is an allocated buffer
+          if (!clouds.count(handle)) {
+            clouds[handle] = cepton_ros::Cloud();
+          }
 
-    // Publish by serial number
-    if (serial_points_publisher_.count(handle) && output_by_sn_)
-      serial_points_publisher_[handle].publish(cloud);
-  });
+          auto const &cloud = clouds[handle];
+
+          // Publish points
+          points_publisher_.publish(cloud);
+
+          // Publish by handle
+          if (handle_points_publisher_.count(handle) && output_by_handle_)
+            handle_points_publisher_[handle].publish(cloud);
+
+          // Publish by serial number
+          if (serial_points_publisher_.count(handle) && output_by_sn_)
+            serial_points_publisher_[handle].publish(cloud);
+        });
+  }
 }
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor *info) {
@@ -414,7 +414,6 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor *info) {
 
   // Publish on the sensor-specific topic
   handle_info_publisher_[info->handle].publish(msg);
-
-}  // PublisherNodelet::PublishSensorInformation
+}
 
 }  // namespace cepton_ros
