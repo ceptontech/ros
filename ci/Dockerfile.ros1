@@ -1,0 +1,14 @@
+FROM ros:noetic
+
+WORKDIR /app
+
+# set up the catkin workspace
+RUN mkdir -p /catkin_ws/src
+
+# Install dependencies
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ros-noetic-pcl-conversions \
+    ros-noetic-pcl-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

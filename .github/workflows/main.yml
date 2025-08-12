@@ -7,19 +7,39 @@ on:
 
 
 jobs:
-  build-driver:
-    name: Build driver
+  build-driver-ros2:
+    name: Build driver (ROS2)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Build docker image
-        run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile
+        run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile.ros2
 
       - name: Run tests
         run: |
             docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_rust_$GITHUB_SHA bash -ex -c '
             cd ros2
             colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
+            '
+
+  build-driver-ros1:
+    name: Build driver (ROS1)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build docker image
+        run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile.ros1
+
+      - name: Run tests
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_rust_$GITHUB_SHA bash -ex -c '
+            cd /catkin_ws/src
+            ln -s /app/ros
+
+            cd /catkin_ws
+            catkin_make
             '
