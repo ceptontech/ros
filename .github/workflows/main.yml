@@ -10,7 +10,6 @@ jobs:
   build-driver:
     name: Build driver
     runs-on:
-      - self-hosted
       - Linux
       - X64
     steps:
@@ -22,7 +21,7 @@ jobs:
 
       - name: Run tests
         run: |
-            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw"  -v /mnt/jenkins/python-sdk-ci-test:/root/Documents/cepton ci_rust_$GITHUB_SHA bash -ex -c '
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_rust_$GITHUB_SHA bash -ex -c '
             cd ros2
             colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
             '
