@@ -6,11 +6,11 @@
 # These parameters will be applied to a node launched with name `cepton_publisher`
 /cepton_publisher:
   ros__parameters:
-    capture_file: ""
+    capture_file: "/home/wlauer/Documents/freeway-143.pcap"
     capture_loop: true
     sensor_port: 8808
     half_frequency_mode: false
-    cepp_output_type: BOTH
+    cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true
     include_second_return_points: false

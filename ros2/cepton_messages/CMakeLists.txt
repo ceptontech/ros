@@ -28,10 +28,8 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CeptonSensorInfo.msg"
   "msg/CeptonPointData.msg"
-  "msg/CeptonPanic.msg"
   "msg/CeptonSensorStatus.msg"
 )
-
 
 
 # Check ROS distribution

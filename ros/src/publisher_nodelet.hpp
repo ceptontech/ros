@@ -7,7 +7,6 @@
 #include <pcl_ros/point_cloud.h>
 #include <sensor_msgs/PointCloud2.h>
 
-// Include CeptonSDK2
 #include <algorithm>
 #include <chrono>
 #include <future>
@@ -17,52 +16,36 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cepton2_ros/CeptonSensorStatus.h"
-#include "cepton2_ros/SensorInformation.h"
-#include "cepton2_ros/SensorPanic.h"
-#include "cepton2_ros/common.hpp"
-#include "cepton2_ros/point.hpp"
-#include "cepton_sdk2.h"
+#include "cepton_ros/CeptonSensorStatus.h"
+#include "cepton_ros/SensorInformation.h"
+#include "cepton_ros/SensorPanic.h"
+#include "cepton_ros/cepton_ros.hpp"
+#include "cepton_sdk3.h"
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
-namespace cepton2_ros {
+namespace cepton_ros {
+
 /**
- * CEPTON_SDK2 nodelet. Publishes sensor point topics.
+ * Cepton SDK nodelet. Publishes sensor point topics.
  **/
 class PublisherNodelet : public nodelet::Nodelet {
+  using PublisherMap = std::unordered_map<CeptonSensorHandle, ros::Publisher>;
+
  public:
   ~PublisherNodelet();
 
-  static void FrameCallbackWrapper(CeptonSensorHandle handle,
-                                   int64_t start_timestamp, size_t n_points,
-                                   size_t stride, const uint8_t *points,
-                                   void *user_data);
-
-  static void SensorInfoCallbackWrapper(CeptonSensorHandle handle,
-                                        const struct CeptonSensor *info,
-                                        void *user_data);
-
-  static void SensorPanicCallbackWrapper(
-      CeptonSensorHandle handle, const CeptonPanicMessage *panic_message,
-      void *user_data);
-
   void check_api_error(int err, char const *api);
 
-  void PublishPoints(CeptonSensorHandle handle, int64_t start_timestamp,
-                     size_t n_points, size_t stride, const uint8_t *points);
+  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
+                      size_t n_points, const CeptonPointEx *points);
 
-  void PublishSensorInformation(const CeptonSensor *info);
-  void PublishSensorPanic(CeptonSensorHandle handle,
-                          const CeptonPanicMessage *panic_message);
-
-  bool half_frequency_mode() const { return is_half_frequency_mode_; }
+  void publish_sensor_info(const CeptonSensor *info);
 
  protected:
   void onInit() override;
 
  private:
-  void CheckIncludedFlags();
   CeptonSensorErrorCallback error_callback;
 
   ros::NodeHandle node_handle_;
@@ -71,13 +54,10 @@ class PublisherNodelet : public nodelet::Nodelet {
   ros::Publisher points_publisher_;
   ros::Publisher sensor_info_publisher_;
 
-  std::unordered_map<CeptonSensorHandle, ros::Publisher>
-      handle_points_publisher_;
-  std::unordered_map<CeptonSensorHandle, ros::Publisher>
-      serial_points_publisher_;
-  std::unordered_map<CeptonSensorHandle, ros::Publisher> handle_info_publisher_;
-  std::unordered_map<CeptonSensorHandle, ros::Publisher>
-      handle_panic_publisher_;
+  PublisherMap handle_points_publisher_;
+  PublisherMap serial_points_publisher_;
+  PublisherMap handle_info_publisher_;
+  PublisherMap handle_panic_publisher_;
 
   ros::Publisher sensor_status_publisher_;
 
@@ -109,13 +89,13 @@ class PublisherNodelet : public nodelet::Nodelet {
   int frame_aggregation_mode_{CEPTON_AGGREGATION_MODE_NATURAL};
   std::future<void> pub_fut_;
 
-  void publish_async(CeptonSensorHandle handle, size_t stride);
+  void publish_async(CeptonSensorHandle handle);
 
   std::mutex status_lock_;
   std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp_;
-  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>>
+  std::unordered_map<CeptonSensorHandle, std::vector<CeptonPointEx>>
       handle_to_points_;
-  std::unordered_map<CeptonSensorHandle, CeptonPointCloud>
+  std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud>
       rostopic_point_clouds_;
   std::unordered_map<CeptonSensorHandle,
                      std::chrono::time_point<std::chrono::system_clock>>
@@ -125,4 +105,4 @@ class PublisherNodelet : public nodelet::Nodelet {
   bool stopping_{false};
 };
 
-}  // namespace cepton2_ros
+}  // namespace cepton_ros

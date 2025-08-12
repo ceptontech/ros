@@ -8,7 +8,6 @@
 #include "std_msgs/msg/string.hpp"
 
 using namespace std;
-std::shared_ptr<cepton_ros::CeptonPublisher> node;
 void sigterm_handler(int) { rclcpp::shutdown(); }
 
 int main(int argc, char** argv) {
@@ -18,8 +17,7 @@ int main(int argc, char** argv) {
   action.sa_handler = sigterm_handler;
   sigaction(SIGTERM, &action, nullptr);
 
-  node = make_shared<cepton_ros::CeptonPublisher>();
-  rclcpp::spin(node);
+  rclcpp::spin(make_shared<cepton_ros::CeptonPublisher>());
 
   return 0;
 }

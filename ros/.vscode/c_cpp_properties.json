@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "includePath": [
+                "/home/cepton/ros/cepton-sdk-3.0.18.0/include",
+                "/opt/ros/noetic/include/**",
+                "/home/cepton/catkin_ws/src/ros/include",
+                "/usr/include/pcl-1.10/",
+                "/usr/include/eigen3/",
+                "/home/cepton/catkin_ws/devel/include/"
+            ]
+        }
+    ],
+    "version": 4
+}

@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 
+#include <cepton_sdk3.h>
 #include <dlfcn.h>
 
 #include <chrono>
@@ -12,11 +13,9 @@
 #include <tuple>
 #include <vector>
 
-#include "cepton_messages/msg/cepton_panic.hpp"
 #include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
-#include "libcepton_sdk2.h"  
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
@@ -27,7 +26,7 @@ enum PointFieldOptions : uint16_t {
   SPHERICAL = 1 << 1,
   TIMESTAMP = 1 << 2,
   INTENSITY = 1 << 3,
-  ALL       = 0xFFFF            
+  ALL = 0xFFFF
 };
 
 namespace cepton_ros {
@@ -45,32 +44,18 @@ class CeptonPublisher : public rclcpp::Node {
       CepPointPublisher;
   typedef rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr
       CepInfoPublisher;
-  typedef rclcpp::Publisher<cepton_messages::msg::CeptonPanic>::SharedPtr
-      PanicPublisher;
 
   CeptonPublisher();
   ~CeptonPublisher();
-  bool use_handle_for_cepp() { return use_handle_for_cepp_; }
-  bool use_sn_for_cepp() { return use_sn_for_cepp_; }
-  bool use_handle_for_pcl2() { return use_handle_for_pcl2_; }
-  bool use_sn_for_pcl2() { return use_sn_for_pcl2_; }
-//   uint8_t include_flag() { return include_flag_; }
-  uint16_t include_flag() { return include_flag_; }
-  bool half_frequency_mode() { return half_frequency_mode_; }
-  double min_altitude() { return min_altitude_; }
-  double max_altitude() { return max_altitude_; }
-  double min_azimuth() { return min_azimuth_; }
-  double max_azimuth() { return max_azimuth_; }
 
  private:
   CeptonReplayHandle replay_handle = 0;
 
-  //Edited
+  // Edited
   friend void sensorFrameCallback(CeptonSensorHandle handle,
-                                       int64_t start_timestamp,
-                                       size_t n_points,
-                                       const struct CeptonPointEx *points,
-                                       void *user_data);
+                                  int64_t start_timestamp, size_t n_points,
+                                  const struct CeptonPointEx *points,
+                                  void *user_data);
   /**
    * @brief Internal points callback invoked by SDK. Publishes points in format
    * CeptonPointDataEx (see cepton_sdk2.h)
@@ -83,33 +68,22 @@ class CeptonPublisher : public rclcpp::Node {
    * @param node
    */
 
-//Edited
+  // Edited
   friend void ceptonFrameCallback(CeptonSensorHandle handle,
-                                       int64_t start_timestamp,
-                                       size_t n_points,
-                                       const struct CeptonPointEx *points,
-                                       void *user_data);
+                                  int64_t start_timestamp, size_t n_points,
+                                  const struct CeptonPointEx *points,
+                                  void *user_data);
 
   /**
    * @brief SDK info callback
    *
    * @param handle
-   * @param info    
+   * @param info
    * @param node
    */
   friend void sensor_info_callback(CeptonSensorHandle handle,
                                    const struct CeptonSensor *info, void *node);
 
-  /**
-   * @brief SDK info callback
-   *
-   * @param handle
-   * @param panic_message
-   * @param node
-   */
-  friend void sensor_panic_callback(CeptonSensorHandle handle,
-                                    const CeptonPanicMessage *panic_message,
-                                    void *node);
   /**
    * @brief Responsible for publishing the points received from the SDK
    * callback functions. Publish points in format msg::PointCloud2
@@ -121,7 +95,7 @@ class CeptonPublisher : public rclcpp::Node {
   std::unordered_map<CeptonSensorHandle, PointPublisher>
       serial_points_publisher;
 
-  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points; 
+  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points;
   std::mutex handle_to_points_mutex_;
   std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp;
 
@@ -146,12 +120,6 @@ class CeptonPublisher : public rclcpp::Node {
    */
   std::unordered_map<CeptonSensorHandle, CepInfoPublisher>
       handle_to_info_publisher;
-
-  /**
-   * @brief Responsible for publishing the per-sensor panic packets
-   */
-  std::unordered_map<CeptonSensorHandle, PanicPublisher>
-      handle_to_panic_publisher;
 
   /**
    * @brief Publishes sensor status messages
@@ -182,12 +150,14 @@ class CeptonPublisher : public rclcpp::Node {
     included, while 0 if excluded The pre-included flags are "ignored," either
     because it is for internal use only (hence no config to include them) or
     because it is deprecated.
-    
-    Ambient point information exists for all points, the corresponding flag bit for ambient point is (1 << 15), hence the inclusion to include_flag_*/
-  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY | CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
 
-  bool use_handle_for_cepp_{true};
-  bool use_sn_for_cepp_{true};
+    Ambient point information exists for all points, the corresponding flag bit
+    for ambient point is (1 << 15), hence the inclusion to include_flag_*/
+  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
+                           CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
+
+  bool use_handle_for_cepx_{true};
+  bool use_sn_for_cepx_{true};
   bool use_handle_for_pcl2_{true};
   bool use_sn_for_pcl2_{true};
 
@@ -211,21 +181,26 @@ class CeptonPublisher : public rclcpp::Node {
   void ensure_pcl2_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, PointPublisher> &m);
-  void ensure_cepp_publisher(
+  void ensure_cepx_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, CepPointPublisher> &m);
   void ensure_info_publisher(
       CeptonSensorHandle handle, std::string const &topic,
       std::unordered_map<CeptonSensorHandle, CepInfoPublisher> &m);
-  void ensure_panic_publisher(CeptonSensorHandle handle,
-                              std::string const &topic);
+
+  /**
+   * @brief Determine which coordinate system is used. Cepton coordinate system
+   * is the system used in the CeptonViewer, where X = right, Y = in, Z = up.
+   * If false, then ROS coordinate system is used (X = in, Y = left, Z = up)
+   *
+   */
   bool using_cepton_coordinate_system_{true};
 
  private:
   /**
    * Not yet fully implemented; leaving the std::optional code in place
-   * because x120 ultra will have much higher-volume data and we may want to
-   * reduce the packet size, or use only certain fields.
+   * because Vista Ultra and Nova Ultra will have much higher-volume data and we
+   * may want to reduce the packet size, or use only certain fields.
    */
   uint32_t point_field_options_ = ALL;
 
@@ -257,7 +232,7 @@ class CeptonPublisher : public rclcpp::Node {
                : std::nullopt;
   }
 
-  void publish_async(CeptonSensorHandle handle); 
+  void publish_async(CeptonSensorHandle handle);
 
   std::future<void> pub_fut_;
 };

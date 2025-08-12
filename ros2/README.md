@@ -78,7 +78,7 @@ The publisher node can optionally be with any of the following arguments:
 * `capture_loop` (boolean): whether to replay the pcap in a loop, default=false
 * `sensor_port` (int): the port to listen for sensor UDP data, default=8808
 * `half_frequency_mode` (boolean): concatenates 2 frames into 1, publishing them effectively at half rate (not guaranteed every time.), default=false
-* `cepp_output_type` (string): configure if `cepp_points` format point cloud should be outputted. Can either output topic based on "IP", "SN" (serial number), "NONE", or "BOTH". default="BOTH".
+* `cepx_output_type` (string): configure if `cepx_points` format point cloud should be outputted. Can either output topic based on "IP", "SN" (serial number), "NONE", or "BOTH". default="BOTH".
 * `pcl2_output_type` (string): configure if `pcl2` format point cloud should be outputted. Can either output topic based on "IP", "SN" (serial number), "NONE", or "BOTH". default="BOTH".
 * `include_saturated_points` (boolean): include points with the CEPTON_POINT_SATURATED flag bit, default=false
 * `include_second_return_points` (boolean): include points with the CEPTON_POINT_SECOND_RETURN flag bit, default=false
@@ -108,8 +108,8 @@ If running the subscriber node sample, the following options are provided:
 | ------------------ | ----------------------------------------- | ----------------------------------------------------------------------- |
 | `handle_<ID>`      | `sensor_msgs::msg::PointCloud2`           | Per-sensor frame, where `<ID>` is the sensor's IP address as a `uint32` |
 | `serial_<ID>`      | `sensor_msgs::msg::PointCloud2`           | Per-sensor frame, where `<ID>` is the sensor's serial number            |
-| `cepp_handle_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's IP address as a `uint32` |
-| `cepp_serial_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's serial number            |
+| `cepx_handle_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's IP address as a `uint32` |
+| `cepx_serial_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's serial number            |
 | `cepton_points`    | `cepton_messages::msg::CeptonPointData`   | All sensor frames are published over this topic                         |
 | `cepton_pcl2`      | `sensor_msgs::msg::PointCloud2`           | All sensor frames are published over this topic                         |
 | `cepton_info`      | `cepton_messages::msg::CeptonSensorInfo`  | Sensor info messages                                                    |

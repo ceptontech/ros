@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 
-set(CEPTON2_ROS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(CEPTON_ROS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
-project(cepton2_ros)
+project(cepton_ros)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -35,6 +35,36 @@ add_message_files(
   CeptonSensorStatus.msg
 )
 
+
+###################################################################
+# Link the SDK, first get the binaries for the correct architecture
+
+set(SDK_VERSION 3.0.18.0)
+
+
+# Get the path of this cmake lists file. We'll use it to find the SDK which should
+# have also been downloaded as part of the repo
+get_filename_component(ROS_PATH "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
+  set(SDK_SOURCE  ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/lib/linux-x64)
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
+  set(SDK_SOURCE ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/lib/linux-arm64)
+else()
+  message("NO LIBRARY FOUND MATCHING PROCESSOR")
+endif()
+
+
+# Then glob the shared objects
+file(GLOB SDK_BINARIES ${SDK_SOURCE}/*)
+set(CEPTON_SDK3_LIB ${SDK_SOURCE}/libcepton_sdk3.so)
+set(CEPTON_SDK3_INCLUDE ${ROS_PATH}/../cepton-sdk-${SDK_VERSION}/include)
+
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN/..")
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN/../lib")
+
+###################################################################
+
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
   DEPENDENCIES
@@ -46,49 +76,39 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-SET(CEPTON2_ROS_LIBRARIES "")
+SET(CEPTON_ROS_LIBRARIES "")
 
 add_library(
-  cepton2_ros
+  cepton_ros
   "${PROJECT_SOURCE_DIR}/src/publisher_nodelet.cpp"
-  "${PROJECT_SOURCE_DIR}/src/common.cpp"
-  "${PROJECT_SOURCE_DIR}/src/panic.h"
 )
 
-list(APPEND CEPTON2_ROS_LIBRARIES cepton2_ros)
+list(APPEND CEPTON_ROS_LIBRARIES cepton_ros)
+
+message("Including ${CEPTON_SDK3_INCLUDE}")
+include_directories(${CEPTON_SDK3_INCLUDE})
 
 message(STATUS "Detected processor: ${CMAKE_SYSTEM_PROCESSOR}")
-foreach(name IN LISTS CEPTON2_ROS_LIBRARIES)
+foreach(name IN LISTS CEPTON_ROS_LIBRARIES)
   target_include_directories(
     ${name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
                    $<INSTALL_INTERFACE:include>)
-  if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
-    target_link_libraries(${name} ${catkin_LIBRARIES} ${PROJECT_SOURCE_DIR}/binaries/linux-x64/libcepton_sdk2.so)
-  elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
-    target_link_libraries(${name} ${catkin_LIBRARIES} ${PROJECT_SOURCE_DIR}/binaries/linux-arm64/libcepton_sdk2.so)
-  else()
-    message("NO LIBRARY FOUND MATCHING PROCESSOR")
-  endif()
-  add_dependencies(${name} cepton2_ros_generate_messages_cpp)
+  target_link_libraries(${name} ${catkin_LIBRARIES} ${CEPTON_SDK3_LIB})
+  add_dependencies(${name} cepton_ros_generate_messages_cpp)
 endforeach()
 
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES ${CEPTON2_ROS_LIBRARIES}
+  LIBRARIES ${CEPTON_ROS_LIBRARIES}
   CATKIN_DEPENDS message_runtime nodelet pcl_conversions pcl_ros roscpp pluginlib roslib std_msgs)
 
-# Install the python node used for testing
-message("Install to ${CATKIN_PACKAGE_BIN_DESTINATION}")
-catkin_install_python(PROGRAMS test_pack/test_pack.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-
-
-install(DIRECTORY "include/cepton2_ros/"
+message("Install to ${CATKIN_PACKAGE_INCLUDE_DESTINATION}")
+install(DIRECTORY "include/cepton/"
         DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
 
 message("install libraries to ${CATKIN_PACKAGE_LIB_DESTINATION}")
 install(
-  TARGETS ${CEPTON2_ROS_LIBRARIES}
+  TARGETS ${CEPTON_ROS_LIBRARIES}
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})

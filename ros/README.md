@@ -133,3 +133,11 @@ The nodelet also publishes a PANIC packet for when the Lidar detects a fatal fau
 ## 7. Known Issues
 - Publishing sensor transformations is not supported at this time.
 - RViz launch file not working with config.
+
+
+
+
+
+BUILDING
+
+catkin_make -DSDK_DOWNLOAD_LOCATION=/home/cepton/ros

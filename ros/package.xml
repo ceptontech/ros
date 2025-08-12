@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>cepton2_ros</name>
+  <name>cepton_ros</name>
   <version>1.2.1</version>
-  <description>The cepton2_ros package</description>
+  <description>The cepton ros package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
