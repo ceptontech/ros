@@ -1,0 +1,42 @@
+#pragma once
+
+#include <nodelet/nodelet.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <ros/ros.h>
+
+#include "cepton_sdk3.h"
+
+namespace cepton_ros {
+
+struct Point {
+  float x;
+  float y;
+  float z;
+  float reflectivity;
+  uint8_t relative_timestamp;
+  uint8_t flags;
+  uint8_t channel_id;
+  uint8_t valid;
+  float azimuth;
+  float elevation;
+};
+
+using Cloud = pcl::PointCloud<Point>;
+
+}  // namespace cepton_ros
+
+// clang-format off
+POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, reflectivity, reflectivity)
+    (std::uint8_t, relative_timestamp, relative_timestamp)
+    (std::uint8_t, flags, flags)
+    (std::uint8_t, channel_id, channel_id)
+    (std::uint8_t, valid, valid)
+    (float, azimuth, azimuth)
+    (float, elevation, elevation)
+  )
+// clang-format on
