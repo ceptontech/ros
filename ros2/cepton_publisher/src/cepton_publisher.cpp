@@ -13,6 +13,16 @@
 
 #include "cepton_messages/cepton_messages.h"
 
+/**
+ * Set to 1 to include polar coordinates in the output
+ */
+#define WITH_POLAR 0
+
+/**
+ * Set to 1 to include timestamp, channel id, point flag, in the output
+ */
+#define WITH_TS_CH_F 0
+
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointField = sensor_msgs::msg::PointField;
 using namespace std::chrono_literals;
@@ -121,21 +131,36 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   cloud.header.frame_id = "cepton3";
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
+
+  int n_fields = 4;
+#if WITH_TS_CH_F
+  n_fields += 4;
+#endif
+#if WITH_POLAR
+  n_fields += 3;
+#endif
+
   cloud_modifier.setPointCloud2Fields(
-      11,  // num fields
-           // clang-format off
+      n_fields,
+      // clang-format off
               "x", 1, PointField::FLOAT32,
               "y", 1, PointField::FLOAT32,
               "z", 1, PointField::FLOAT32,
-              "intensity", 1, PointField::FLOAT32,
+              "intensity", 1, PointField::FLOAT32
+              #if WITH_TS_CH_F
+              ,
               "timestamp_s", 1, PointField::INT32,
               "timestamp_us", 1, PointField::INT32,
               "flags", 1, PointField::UINT16,
-              "channel_id", 1, PointField::UINT16,
+              "channel_id", 1, PointField::UINT16
+              #endif
+              #if WITH_POLAR
+              ,
               "azimuth", 1, PointField::FLOAT32,
               "elevation", 1, PointField::FLOAT32,
               "range", 1, PointField::FLOAT32
-           // clang-format on
+              #endif
+      // clang-format on
   );
 
   // resizing should be done before the iters are declared, otw seg faults
@@ -149,6 +174,8 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto z_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "z");
   auto intensity_iter =
       sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
+
+#if WITH_TS_CH_F
   auto timestamp_sec_iter =
       sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
   auto timestamp_usec_iter =
@@ -156,9 +183,13 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto flag_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "flags");
   auto channel_id_iter =
       sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
+#endif
+
+#if WITH_POLAR
   auto azim_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "azimuth");
   auto elev_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "elevation");
   auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
+#endif
 
   int kept = 0;
 
@@ -200,19 +231,12 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     const float image_x = y / x;  // horizontal tangent
     const float image_z = z / x;  // vertical tangent
 
-    const double azimuth_rad = atan(image_x);
-    const double elevation_rad = atan2(image_z, sqrt(image_x * image_x + 1));
-
     // Filter if the point is outside of the FOV
     if (image_x < min_image_x_ || image_x > max_image_x_ ||
         image_z < min_image_z_ || image_z > max_image_z_ ||
         distance_squared < min_distance_squared ||
         distance_squared > max_distance_squared)
       continue;
-
-    // If this point is a no-return, set the distance to 0
-    bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
-    float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
 
     // x value
     *x_iter = x;
@@ -230,6 +254,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     *intensity_iter = p0.reflectivity * 0.01;
     ++intensity_iter;
 
+#if WITH_TS_CH_F
     // timestamp - seconds
     *timestamp_sec_iter = timestamp / (int64_t)1e6;
     ++timestamp_sec_iter;
@@ -245,6 +270,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     // channel id
     *channel_id_iter = p0.channel_id;
     ++channel_id_iter;
+#endif
+
+#if WITH_POLAR
+    const double azimuth_rad = atan(image_x);
+    const double elevation_rad = atan2(image_z, sqrt(image_x * image_x + 1));
+
+    // If this point is a no-return, set the distance to 0
+    bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
+    float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
 
     // azimuth
     *azim_iter = azimuth_rad;
@@ -257,6 +291,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     // distance
     *dist_iter = range_meas;
     ++dist_iter;
+#endif
 
     kept++;
   }

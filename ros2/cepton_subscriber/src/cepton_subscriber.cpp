@@ -27,7 +27,6 @@ struct CeptonPointEx {
 
 CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
   bool subscribePcl2 = false;
-  bool subscribeCeptonPoints = false;
   bool subscribeCeptonInfo = false;
   bool subscribeCeptonPanic = false;
 
