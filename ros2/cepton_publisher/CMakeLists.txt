@@ -60,17 +60,10 @@ target_include_directories(
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)
 
 # Link ros dependencies
-target_link_libraries(cepton_publisher PUBLIC
-  ${cepton_messages_TARGETS}
-  ${sensor_msgs_TARGETS}
-  ${std_msgs_TARGETS}
-  rclcpp::rclcpp
-  rclcpp_components::component
-  rclcpp_components::component_manager
-  sensor_msgs::sensor_msgs_library
-  ${CEPTON_SDK3_LIB}
-)
+ament_target_dependencies(${PROJECT_NAME} PUBLIC rclcpp_components rclcpp
+                          std_msgs sensor_msgs cepton_messages)
 
+target_link_libraries(${PROJECT_NAME} PUBLIC ${CEPTON_SDK3_LIB})
 
 # Install
 install(

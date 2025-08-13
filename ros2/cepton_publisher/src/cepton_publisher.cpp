@@ -88,7 +88,7 @@ void ceptonFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
 void sensorFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
                          size_t n_points, const struct CeptonPointEx *points,
                          void *user_data) {
-  CeptonPublisher *node = reinterpret_cast<CeptonPublisher *>(user_data);
+  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
 
   // Update the sensor status
   {
@@ -111,11 +111,57 @@ void sensorFrameCallback(CeptonSensorHandle handle, int64_t start_timestamp,
     ref.resize(n_points * sizeof(CeptonPointEx));
     memcpy(ref.data(), points, n_points * sizeof(CeptonPointEx));
   }
-
-  node->publish_async(handle);
 }
 
-void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
+void sensor_info_callback(CeptonSensorHandle handle,
+                          const struct CeptonSensor *info, void *user_data) {
+  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
+
+  // Update the sensor status
+  {
+    lock_guard<mutex> lock(node->status_lock_);
+    node->handle_to_serial_number_[handle] = info->serial_number;
+  }
+
+  auto msg = cepton_messages::msg::CeptonSensorInfo();
+  msg.serial_number = info->serial_number;
+  msg.handle = handle;
+  msg.model_name = reinterpret_cast<char const *>(info->model_name);
+  msg.model = info->model;
+  msg.part_number = info->part_number;
+  msg.firmware_version = info->firmware_version;
+  msg.power_up_timestamp = info->power_up_timestamp;
+  msg.time_sync_offset = info->time_sync_offset;
+  msg.time_sync_drift = info->time_sync_drift;
+  msg.return_count = info->return_count;
+  msg.channel_count = info->channel_count;
+  msg.status_flags = info->status_flags;
+  msg.temperature = info->temperature;
+  msg.fault_summary = info->fault_summary;
+  copy(begin(info->fault_entries), end(info->fault_entries),
+       msg.fault_entries.begin());
+
+  // Make sure this serial number has the needed publishers
+  if (node->use_sn_for_cepx_)
+    node->ensure_cepx_publisher(handle,
+                                "cepx_serial_" + to_string(info->serial_number),
+                                node->serial_cep_points_publisher);
+  if (node->use_sn_for_pcl2_)
+    node->ensure_pcl2_publisher(handle,
+                                "serial_" + to_string(info->serial_number),
+                                node->serial_points_publisher);
+
+  // Publish info on the unified topic
+  node->info_publisher->publish(msg);
+
+  // Publish info on the per-sensor info topics.
+  // Publish on the sensor-specific topic
+  node->ensure_info_publisher(handle, "info_handle_" + to_string(handle),
+                              node->handle_to_info_publisher);
+  node->handle_to_info_publisher[handle]->publish(msg);
+}
+
+void CeptonPublisher::publish_points(CeptonSensorHandle handle) {
   if (pub_fut_.valid()) pub_fut_.wait();
   pub_fut_ = std::async(std::launch::async, [this, handle]() {
     // https://github.com/ros/common_msgs/blob/jade-devel/sensor_msgs/include/sensor_msgs/point_cloud2_iterator.h
@@ -159,49 +205,22 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
     // Populate the cloud fields
     // Each iterator is optional, and depends on whether the field was added to
     // the cloud.
-    auto x_iter = make_optional_iter<float>(cloud, "x");
-    auto y_iter = make_optional_iter<float>(cloud, "y");
-    auto z_iter = make_optional_iter<float>(cloud, "z");
-    auto i_iter = make_optional_iter<float>(cloud, "intensity");
-    auto t_iter = make_optional_iter<int32_t>(cloud, "timestamp_us");
-    auto t_us_iter = make_optional_iter<int32_t>(cloud, "timestamp_us");
-    auto f_iter = make_optional_iter<uint16_t>(cloud, "flags");
-    auto c_iter = make_optional_iter<uint16_t>(cloud, "channel_id");
-    auto azim_iter = make_optional_iter<double>(cloud, "azimuth");
-    auto elev_iter = make_optional_iter<double>(cloud, "elevation");
-    auto dist_iter = make_optional_iter<float>(cloud, "range");
-
-    // Set the fields that contain values
-    auto set_fields = [&](float x, float y, float z, float i, int32_t t,
-                          int32_t t_us, uint16_t f, uint16_t c, double azim,
-                          double elev, float dist) {
-      if (x_iter.has_value()) *(x_iter.value()) = x;
-      if (y_iter.has_value()) *(y_iter.value()) = y;
-      if (z_iter.has_value()) *(z_iter.value()) = z;
-      if (i_iter.has_value()) *(i_iter.value()) = i;
-      if (t_iter.has_value()) *(t_iter.value()) = t;
-      if (t_us_iter.has_value()) *(t_us_iter.value()) = t_us;
-      if (f_iter.has_value()) *(f_iter.value()) = f;
-      if (c_iter.has_value()) *(c_iter.value()) = c;
-      if (azim_iter.has_value()) *(azim_iter.value()) = azim;
-      if (elev_iter.has_value()) *(elev_iter.value()) = elev;
-      if (dist_iter.has_value()) *(dist_iter.value()) = dist;
-    };
-
-    // Move the iterators that contain values
-    auto move_iters = [&]() {
-      if (x_iter.has_value()) ++x_iter.value();
-      if (y_iter.has_value()) ++y_iter.value();
-      if (z_iter.has_value()) ++z_iter.value();
-      if (i_iter.has_value()) ++i_iter.value();
-      if (t_iter.has_value()) ++t_iter.value();
-      if (t_us_iter.has_value()) ++t_us_iter.value();
-      if (f_iter.has_value()) ++f_iter.value();
-      if (c_iter.has_value()) ++c_iter.value();
-      if (azim_iter.has_value()) ++azim_iter.value();
-      if (elev_iter.has_value()) ++elev_iter.value();
-      if (dist_iter.has_value()) ++dist_iter.value();
-    };
+    auto x_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "x");
+    auto y_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "y");
+    auto z_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "z");
+    auto intensity_iter =
+        sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
+    auto timestamp_sec_iter =
+        sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
+    auto timestamp_usec_iter =
+        sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_us");
+    auto flag_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "flags");
+    auto channel_id_iter =
+        sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
+    auto azim_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "azimuth");
+    auto elev_iter =
+        sensor_msgs::PointCloud2Iterator<float>(cloud, "elevation");
+    auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
 
     int kept = 0;
 
@@ -259,12 +278,50 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
 
         bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
         float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
-        set_fields(x, y, z, static_cast<float>(p0.reflectivity) * 0.01,
-                   static_cast<int32_t>(timestamp / (int64_t)1e6),
-                   static_cast<int32_t>(timestamp % (int64_t)1e6), p0.flags,
-                   p0.channel_id, azimuth_rad, elevation_rad, range_meas);
 
-        move_iters();
+        // x value
+        *x_iter = x;
+        ++x_iter;
+
+        // y value
+        *y_iter = y;
+        ++y_iter;
+
+        // z value
+        *z_iter = z;
+        ++z_iter;
+
+        // intensity
+        *intensity_iter = p0.reflectivity * 0.01;
+        ++intensity_iter;
+
+        // timestamp - seconds
+        *timestamp_sec_iter = timestamp / (int64_t)1e6;
+        ++timestamp_sec_iter;
+
+        // timestamp - microseconds
+        *timestamp_usec_iter = timestamp % (int64_t)1e6;
+        ++timestamp_usec_iter;
+
+        // flags
+        *flag_iter = p0.flags;
+        ++flag_iter;
+
+        // channel id
+        *channel_id_iter = p0.channel_id;
+        ++channel_id_iter;
+
+        // azimuth
+        *azim_iter = azimuth_rad;
+        ++azim_iter;
+
+        // elevation
+        *elev_iter = elevation_rad;
+        ++elev_iter;
+
+        // distance
+        *dist_iter = range_meas;
+        ++dist_iter;
 
         kept++;
       }
@@ -290,54 +347,6 @@ void CeptonPublisher::publish_async(CeptonSensorHandle handle) {
   });
 }
 
-void sensor_info_callback(CeptonSensorHandle handle,
-                          const struct CeptonSensor *info, void *user_data) {
-  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
-
-  // Update the sensor status
-  {
-    lock_guard<mutex> lock(node->status_lock_);
-    node->handle_to_serial_number_[handle] = info->serial_number;
-  }
-
-  auto msg = cepton_messages::msg::CeptonSensorInfo();
-  msg.serial_number = info->serial_number;
-  msg.handle = handle;
-  msg.model_name = reinterpret_cast<char const *>(info->model_name);
-  msg.model = info->model;
-  msg.part_number = info->part_number;
-  msg.firmware_version = info->firmware_version;
-  msg.power_up_timestamp = info->power_up_timestamp;
-  msg.time_sync_offset = info->time_sync_offset;
-  msg.time_sync_drift = info->time_sync_drift;
-  msg.return_count = info->return_count;
-  msg.channel_count = info->channel_count;
-  msg.status_flags = info->status_flags;
-  msg.temperature = info->temperature;
-  msg.fault_summary = info->fault_summary;
-  copy(begin(info->fault_entries), end(info->fault_entries),
-       msg.fault_entries.begin());
-
-  // Make sure this serial number has the needed publishers
-  if (node->use_sn_for_cepx_)
-    node->ensure_cepx_publisher(handle,
-                                "cepx_serial_" + to_string(info->serial_number),
-                                node->serial_cep_points_publisher);
-  if (node->use_sn_for_pcl2_)
-    node->ensure_pcl2_publisher(handle,
-                                "serial_" + to_string(info->serial_number),
-                                node->serial_points_publisher);
-
-  // Publish info on the unified topic
-  node->info_publisher->publish(msg);
-
-  // Publish info on the per-sensor info topics.
-  // Publish on the sensor-specific topic
-  node->ensure_info_publisher(handle, "info_handle_" + to_string(handle),
-                              node->handle_to_info_publisher);
-  node->handle_to_info_publisher[handle]->publish(msg);
-}
-
 /// @brief Create a pcl2 publisher and store in the provided map, if not
 /// already existing
 /// @param topic
@@ -358,9 +367,9 @@ void CeptonPublisher::ensure_cepx_publisher(
   if (!m.count(handle)) m[handle] = create_publisher<CeptonPoints>(topic, 50);
 }
 
-void CeptonPublisher::ensure_info_publisher(
-    CeptonSensorHandle handle, string const &topic,
-    unordered_map<CeptonSensorHandle, CepInfoPublisher> &m) {
+void CeptonPublisher::ensure_info_publisher(CeptonSensorHandle handle,
+                                            string const &topic,
+                                            InfoPublisherMap &m) {
   if (!m.count(handle))
     m[handle] =
         create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, 10);
@@ -394,9 +403,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("include_blocked_points", true);
   declare_parameter("min_altitude", -90.);
   declare_parameter("max_altitude", 90.);
-  declare_parameter("min_azimuth", -180.);
-  declare_parameter("max_azimuth", 180.);
-  declare_parameter("aggregation_mode", 0);
+  declare_parameter("min_azimuth", -90.);
+  declare_parameter("max_azimuth", 90.);
   declare_parameter("max_distance", numeric_limits<float>::max());
   declare_parameter("min_distance", 0.0);
   declare_parameter("expected_sensor_ips", vector<string>{});
@@ -404,12 +412,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   // Initialize sdk
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_sdk_error(ret, "CeptonInitialize");
-
-  // Get the aggregation mode
-  rclcpp::Parameter p_aggregation_mode = get_parameter("aggregation_mode");
-  frame_aggregation_mode_ = (int)p_aggregation_mode.as_int();
-  RCLCPP_DEBUG(this->get_logger(), "Using frame aggregation %d",
-               frame_aggregation_mode_);
 
   RCLCPP_DEBUG(this->get_logger(),
                "========= Point Cloud Output Parameters =========");
@@ -434,8 +436,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     cep_points_publisher = create_publisher<CeptonPoints>("cepton_points", 50);
 
     // Register callback
-    ret = CeptonListenFramesEx(frame_aggregation_mode_, ceptonFrameCallback,
-                               this);
+    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL,
+                               ceptonFrameCallback, this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
 
@@ -459,8 +461,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
 
     // Register callback
-    ret = CeptonListenFramesEx(frame_aggregation_mode_, sensorFrameCallback,
-                               this);
+    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL,
+                               sensorFrameCallback, this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
   RCLCPP_DEBUG(this->get_logger(),
@@ -515,9 +517,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     });
   }
 
-  // Check whether to output 2 frames at once
-  half_frequency_mode_ = get_parameter("half_frequency_mode").as_bool();
-
   RCLCPP_DEBUG(this->get_logger(),
                "============= Point Flag Parameters =============");
 
@@ -552,10 +551,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
 
   RCLCPP_DEBUG(this->get_logger(),
                "=================================================");
-
-  // Coordinate system settings.
-  using_cepton_coordinate_system_ =
-      get_parameter("using_cepton_coordinate_system").as_bool();
 
   // Point filter settings
   min_altitude_ = get_parameter("min_altitude").as_double();

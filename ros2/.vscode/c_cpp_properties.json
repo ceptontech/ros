@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "includePath": [
+                "/home/cepton/ros/cepton-sdk-3.0.18.0/include",
+                "/opt/ros/foxy/include/**",
+                "/usr/include/eigen3/",
+                "/home/cepton/ros/ros2/cepton_publisher/include",
+                "/home/cepton/ros/ros2/install/cepton_messages/include"
+            ]
+        }
+    ],
+    "version": 4
+}

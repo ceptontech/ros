@@ -1,0 +1,4 @@
+Checks:          '*, clang-analyzer-*'   # Enable all checks and Clang Analyzer checks
+WarningsAsErrors: 'false'                 # Treat warnings as errors (optional)
+HeaderFilterRegex: '.*'                   # Apply checks to all header files (optional)
+FormatStyle:    'file'                    # Use .clang-format style (optional)
