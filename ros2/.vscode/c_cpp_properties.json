@@ -11,6 +11,7 @@
                 "/opt/ros/galactic/include/**",
                 "/usr/include/eigen3/",
                 "/home/cepton/ros/ros2/cepton_publisher/include",
+                "/home/cepton/ros/ros2/cepton_subscriber/include",
                 "/home/cepton/ros/ros2/install/cepton_messages/include"
             ]
         }

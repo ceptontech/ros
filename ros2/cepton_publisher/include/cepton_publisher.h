@@ -88,14 +88,8 @@ class CeptonPublisher : public rclcpp::Node {
    *
    */
   PointPublisher points_publisher;
-  std::unordered_map<CeptonSensorHandle, PointPublisher>
-      handle_points_publisher;
-  std::unordered_map<CeptonSensorHandle, PointPublisher>
-      serial_points_publisher;
-
-  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points;
-  std::mutex handle_to_points_mutex_;
-  std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp;
+  PointPublisherMap handle_points_publisher;
+  PointPublisherMap serial_points_publisher;
 
   /**
    * @brief Responsible for publishing the points received from the SDK callback
@@ -150,12 +144,6 @@ class CeptonPublisher : public rclcpp::Node {
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
 
-  /** If true, publish cepx points by sensor handle */
-  bool use_handle_for_cepx_{true};
-
-  /** If true, publish cepx points by serial number */
-  bool use_sn_for_cepx_{true};
-
   /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
 
@@ -177,14 +165,13 @@ class CeptonPublisher : public rclcpp::Node {
 
   void ensure_pcl2_publisher(CeptonSensorHandle handle,
                              std::string const &topic, PointPublisherMap &m);
-  void ensure_cepx_publisher(CeptonSensorHandle handle,
-                             std::string const &topic, CepPointPublisherMap &m);
   void ensure_info_publisher(CeptonSensorHandle handle,
                              std::string const &topic, InfoPublisherMap &m);
   std::future<void> pub_fut_;
 
  public:
-  void publish_points(CeptonSensorHandle handle);
+  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
+                      size_t n_points, const CeptonPointEx *points);
 };
 
 }  // namespace cepton_ros
