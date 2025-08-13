@@ -9,7 +9,6 @@
 #include <tuple>
 #include <vector>
 
-#include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
 #include "cepton_sdk3.h"
@@ -27,14 +26,10 @@ enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
  */
 class CeptonPublisher : public rclcpp::Node {
  public:
-  using CepPointPublisher =
-      rclcpp::Publisher<cepton_messages::msg::CeptonPointData>::SharedPtr;
   using PointPublisher =
       rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
   using PointPublisherMap =
       std::unordered_map<CeptonSensorHandle, PointPublisher>;
-  using CepPointPublisherMap =
-      std::unordered_map<CeptonSensorHandle, CepPointPublisher>;
   using InfoPublisher =
       rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr;
   using InfoPublisherMap =
@@ -49,39 +44,6 @@ class CeptonPublisher : public rclcpp::Node {
  private:
   CeptonReplayHandle replay_handle = 0;
 
-  // Edited
-  friend void sensorFrameCallback(CeptonSensorHandle handle,
-                                  int64_t start_timestamp, size_t n_points,
-                                  const struct CeptonPointEx *points,
-                                  void *user_data);
-  /**
-   * @brief Internal points callback invoked by SDK. Publishes points in format
-   * CeptonPointDataEx (see cepton_sdk2.h)
-   *
-   * @param handle
-   * @param start_timestamp
-   * @param n_points The number of points we need to copy
-   * @param stride
-   * @param points
-   * @param node
-   */
-
-  // Edited
-  friend void ceptonFrameCallback(CeptonSensorHandle handle,
-                                  int64_t start_timestamp, size_t n_points,
-                                  const struct CeptonPointEx *points,
-                                  void *user_data);
-
-  /**
-   * @brief SDK info callback
-   *
-   * @param handle
-   * @param info
-   * @param node
-   */
-  friend void sensor_info_callback(CeptonSensorHandle handle,
-                                   const struct CeptonSensor *info, void *node);
-
   /**
    * @brief Responsible for publishing the points received from the SDK
    * callback functions. Publish points in format msg::PointCloud2
@@ -90,15 +52,6 @@ class CeptonPublisher : public rclcpp::Node {
   PointPublisher points_publisher;
   PointPublisherMap handle_points_publisher;
   PointPublisherMap serial_points_publisher;
-
-  /**
-   * @brief Responsible for publishing the points received from the SDK callback
-   * functions. Publish points in format cepton_messages::msg::CeptonPointData
-   *
-   */
-  CepPointPublisher cep_points_publisher;
-  CepPointPublisherMap handle_cep_points_publisher;
-  CepPointPublisherMap serial_cep_points_publisher;
 
   /**
    * @brief Responsible for publishing the sensor info packets
@@ -172,6 +125,8 @@ class CeptonPublisher : public rclcpp::Node {
  public:
   void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
                       size_t n_points, const CeptonPointEx *points);
+
+  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor *info);
 };
 
 }  // namespace cepton_ros

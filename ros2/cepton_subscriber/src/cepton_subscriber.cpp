@@ -32,7 +32,6 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
   bool subscribeCeptonPanic = false;
 
   declare_parameter("subscribe_pcl2", subscribePcl2);
-  declare_parameter("subscribe_cepton_points", subscribeCeptonPoints);
   declare_parameter("subscribe_cepton_info", subscribeCeptonInfo);
   declare_parameter("subscribe_cepton_panic", subscribeCeptonPanic);
   declare_parameter("export_to_csv", export_to_csv_);
@@ -41,12 +40,6 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
   rclcpp::Parameter pSubscribePcl2 = get_parameter("subscribe_pcl2");
   if (pSubscribePcl2.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET)
     subscribePcl2 = pSubscribePcl2.as_bool();
-
-  rclcpp::Parameter pSubscribeCeptonPoints =
-      get_parameter("subscribe_cepton_points");
-  if (pSubscribeCeptonPoints.get_type() !=
-      rclcpp::ParameterType::PARAMETER_NOT_SET)
-    subscribeCeptonPoints = pSubscribeCeptonPoints.as_bool();
 
   rclcpp::Parameter pSubscribeCeptonInfo =
       get_parameter("subscribe_cepton_info");
@@ -63,13 +56,6 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
     pointsSubscriber = create_subscription<PointCloud2>(
         "cepton_pcl2", 10,
         bind(&CeptonSubscriber::recv_points, this, placeholders::_1));
-
-  // Subscribe to CeptonPointData
-  if (subscribeCeptonPoints)
-    ceptonPointsSubscriber =
-        create_subscription<cepton_messages::msg::CeptonPointData>(
-            "cepton_points", 50,
-            bind(&CeptonSubscriber::recv_cep_points, this, placeholders::_1));
 
   // Subscribe to info messages
   if (subscribeCeptonInfo)
@@ -135,37 +121,4 @@ void CeptonSubscriber::recv_points(
           *t_iter, *c_iter, *x_iter, *y_iter, *z_iter, *i_iter);
     }
   }
-}
-
-// Sample of exporting the published points
-void export_csv(cepton_messages::msg::CeptonPointData::SharedPtr pPoints) {
-  static int cepFrameNum = 0;
-
-  // Check if directory exists
-  const string dir = "cep_frames";
-  struct stat info;
-  if (stat(dir.c_str(), &info) != 0 || !(info.st_mode & S_IFDIR))
-    mkdir(dir.c_str(), S_IRWXU);
-
-  auto f = dir + "/" + to_string(cepFrameNum++) + ".csv";
-  ofstream s(f);
-  s << "timestamp,x,y,z,c,r,flag,azimuth,elevation,distance" << endl;
-
-  int64_t t = pPoints->start_timestamp;
-  const uint8_t* points = pPoints->points.data();
-  for (size_t i = 0; i < pPoints->n_points; i++) {
-    const struct CeptonPointEx* pt =
-        (const CeptonPointEx*)(points + i * sizeof(CeptonPointEx));
-    t += pt->relative_timestamp;
-    s << t << "," << pt->x << "," << pt->y << "," << pt->z << ","
-      << (int)pt->channel_id << "," << pt->reflectivity << "," << (int)pt->flags
-      << endl;
-  }
-}
-
-void CeptonSubscriber::recv_cep_points(
-    const cepton_messages::msg::CeptonPointData::SharedPtr points) {
-  printf("Handle:%ld\tNPts:%d\t\n", points->handle, points->n_points);
-
-  if (export_to_csv_) export_csv(points);
 }
