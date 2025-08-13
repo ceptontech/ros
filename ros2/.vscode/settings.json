@@ -71,10 +71,5 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp"
-    },
-    "C_Cpp.codeAnalysis.clangTidy.enabled": true, // Enable Clang-Tidy
-    "C_Cpp.codeAnalysis.clangTidy.path": "/usr/bin/clang-tidy", // Set the path to clang-tidy
-    "C_Cpp.codeAnalysis.clangTidy.args": [
-        "-checks=*,-clang-analyzer-*"
-    ]
+    }
 }

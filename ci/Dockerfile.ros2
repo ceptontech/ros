@@ -1,4 +1,4 @@
-FROM ros:kilted
+FROM ros:galactic
 
 WORKDIR /app
 

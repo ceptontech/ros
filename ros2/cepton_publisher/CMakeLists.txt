@@ -52,7 +52,7 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN/../lib")
 # -------------------------------------------------------------------------------
 
 find_package(cepton_messages REQUIRED)
-add_library(${PROJECT_NAME} SHARED src/cepton_publisher.cpp src/panic.h)
+add_library(${PROJECT_NAME} SHARED src/cepton_publisher.cpp)
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
                           $<INSTALL_INTERFACE:${PROJECT_NAME}/include>)
@@ -60,6 +60,9 @@ target_include_directories(
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)
 
 # Link ros dependencies
+# CMake recommends replacing this with target_link_libraries, but that doesn't
+# work for ubuntu 20 ROS. So just disable the warning for now.
+set(CMAKE_WARN_DEPRECATED OFF)
 ament_target_dependencies(${PROJECT_NAME} PUBLIC rclcpp_components rclcpp
                           std_msgs sensor_msgs cepton_messages)
 
@@ -71,13 +74,6 @@ install(
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
-
-
-# -------------------------------------------------------------------------------
-# Other setup - Install launch file
-# -------------------------------------------------------------------------------
-
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
 
 # -------------------------------------------------------------------
 # Publisher standalone publisher node

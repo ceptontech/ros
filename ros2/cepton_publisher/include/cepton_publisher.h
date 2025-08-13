@@ -1,6 +1,4 @@
-#include <cepton_sdk3.h>
-#include <dlfcn.h>
-
+#pragma once
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +12,7 @@
 #include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
+#include "cepton_sdk3.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
