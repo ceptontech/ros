@@ -308,13 +308,13 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       cp.z = z;
       cp.intensity = p.reflectivity * 0.01;
 
-#if WITH_TS_CH_F
+#ifdef WITH_TS_CH_F
       cp.relative_timestamp = p.relative_timestamp;
       cp.channel_id = p.channel_id;
       cp.flags = p.flags;
       cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
 #endif
-#if WITH_POLAR
+#ifdef WITH_POLAR
       const double azimuth_rad = atan(tan_yx);
       const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
       cp.azimuth = azimuth_rad;
