@@ -7,11 +7,11 @@
             "cStandard": "c17",
             "cppStandard": "gnu++14",
             "includePath": [
-                "/home/wlauer/ros/cepton-sdk-3.0.18.0/include",
-                "/opt/ros/kilted/include/**",
+                "/home/cepton/ros/cepton-sdk-3.0.18.0/include",
+                "/opt/ros/galactic/include/**",
                 "/usr/include/eigen3/",
-                "/home/wlauer/ros/ros2/cepton_publisher/include",
-                "/home/wlauer/ros/ros2/install/cepton_messages/include/cepton_messages"
+                "/home/cepton/ros/ros2/cepton_publisher/include",
+                "/home/cepton/ros/ros2/install/cepton_messages/include"
             ]
         }
     ],

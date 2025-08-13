@@ -376,9 +376,6 @@ void CeptonPublisher::ensure_info_publisher(CeptonSensorHandle handle,
 }
 
 CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
-  // Allowed options, with default values
-  RCLCPP_DEBUG(this->get_logger(), "My log message %d", 4);
-
   declare_parameter("capture_file", "");
   declare_parameter("capture_loop", false);
   declare_parameter("sensor_port", 8808);
