@@ -7,6 +7,9 @@
 
 #include "cepton_sdk3.h"
 
+#define WITH_POLAR 0
+#define WITH_TS_CH_F 0
+
 namespace cepton_ros {
 
 struct Point {
@@ -14,12 +17,16 @@ struct Point {
   float y;
   float z;
   float intensity;
+#if WITH_TS_CH_F
   uint8_t relative_timestamp;
   uint8_t flags;
   uint8_t channel_id;
   uint8_t valid;
+#endif
+#if WITH_POLAR
   float azimuth;
   float elevation;
+#endif
 };
 
 using Cloud = pcl::PointCloud<Point>;
@@ -32,11 +39,15 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
     (float, y, y)
     (float, z, z)
     (float, intensity, intensity)
+    #if WITH_TS_CH_F
     (std::uint8_t, relative_timestamp, relative_timestamp)
     (std::uint8_t, flags, flags)
     (std::uint8_t, channel_id, channel_id)
     (std::uint8_t, valid, valid)
+    #endif
+    #if WITH_POLAR
     (float, azimuth, azimuth)
     (float, elevation, elevation)
+    #endif
   )
 // clang-format on

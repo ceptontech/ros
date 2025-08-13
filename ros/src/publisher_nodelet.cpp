@@ -250,6 +250,10 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
   // Prep the cloud
   {
+    // Make sure there is an allocated buffer
+    if (clouds.find(handle) == clouds.end())
+      clouds[handle] = cepton_ros::Cloud();
+
     // Modify the same cloud buffer each time to avoid realloc
     auto &cloud = clouds[handle];
     cloud.clear();
@@ -293,9 +297,6 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       const float tan_yx = y / x;
       const float tan_zx = z / x;
 
-      const double azimuth_rad = atan(tan_yx);
-      const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
-
       if (tan_yx < min_image_x_ || tan_yx > max_image_x_ ||
           tan_zx < min_image_z_ || tan_zx > max_image_z_ ||
           distance_squared < min_distance_squared ||
@@ -306,13 +307,19 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       cp.y = y;
       cp.z = z;
       cp.intensity = p.reflectivity * 0.01;
+
+#if WITH_TS_CH_F
       cp.relative_timestamp = p.relative_timestamp;
       cp.channel_id = p.channel_id;
       cp.flags = p.flags;
+      cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
+#endif
+#if WITH_POLAR
+      const double azimuth_rad = atan(tan_yx);
+      const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
       cp.azimuth = azimuth_rad;
       cp.elevation = elevation_rad;
-      cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
-
+#endif
       cloud.points.push_back(cp);
       kept++;
     }
@@ -329,11 +336,6 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     // Launch a new process to do the publishing
     pub_fut_ =
         std::async(std::launch::async, [this, handle, start_timestamp]() {
-          // Make sure there is an allocated buffer
-          if (!clouds.count(handle)) {
-            clouds[handle] = cepton_ros::Cloud();
-          }
-
           auto const &cloud = clouds[handle];
 
           // Publish points
