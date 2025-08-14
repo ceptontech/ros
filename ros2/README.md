@@ -1,124 +1,153 @@
-# Cepton ROS2
-- [Cepton ROS2](#cepton-ros2)
-  - [1. Overview](#1-overview)
-  - [2. Getting Started](#2-getting-started)
-    - [2.0 Building source locally](#20-building-source-locally)
-    - [2.1 Installation](#21-installation)
-    - [2.2 Launching the Driver](#22-launching-the-driver)
-    - [2.3 Displaying point cloud in Rviz2](#23-displaying-point-cloud-in-rviz2)
-  - [3. Configuration Parameter Arguments](#3-configuration-parameter-arguments)
-    - [3.1 Publisher Parameter Arguments](#31-publisher-parameter-arguments)
-    - [3.2 Subscriber Parameter Arguments](#32-subscriber-parameter-arguments)
-  - [4. Topics](#4-topics)
+# Cepton ROS Publisher Configuration Guide
 
-## 1. Overview
+This guide covers all configuration options available for the Cepton ROS Publisher based on the implementation in `cepton_publisher.cpp`.
 
-This ROS2 package provides support for Cepton LiDAR with SDK Version >= 2.0.
+## Basic Configuration Parameters
 
-The driver includes two things:
+### Data Source Options
 
-`cepton_subscriber`
-* A sample of how to receive data for Cepton ROS topics
+#### `capture_file` (string, default: "")
+- **Description**: Path to a PCAP capture file for replay mode
+- **Usage**: When specified, the publisher will replay data from the file instead of listening to live sensors
+- **Example**: `capture_file: "/path/to/capture.pcap"`
 
-`cepton_publisher`
-* Publishes topics for different lidar messages. See [Topics](#4-topics) for available topics.
+#### `capture_loop` (bool, default: false)
+- **Description**: Whether to loop the capture replay continuously
+- **Usage**: Only applies when `capture_file` is specified
+- **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
 
+#### `sensor_port` (int, default: 8808)
+- **Description**: UDP port for receiving live sensor data
+- **Usage**: Only applies when not using capture file replay
+- **Note**: Standard Cepton sensor communication port
 
-Building
+### Point Cloud Output Configuration
+
+#### `pcl2_output_type` (string, default: "BOTH")
+- **Description**: Controls how point cloud topics are published
+- **Options**:
+  - `"NONE"`: No point cloud publishing
+  - `"IP"`: Publish per-handle topics only
+  - `"SN"`: Publish per-serial-number topics only  
+  - `"BOTH"`: Publish both per-handle and per-serial-number topics
+- **Topics Created**:
+  - Main topic: `cepton_pcl2`
+  - Per-handle: `handle_<HANDLE>`
+  - Per-serial: `serial_<SERIAL_NUMBER>`
+
+## Point Filtering Options
+
+### Spatial Filtering
+
+#### `min_altitude` (double, default: -90.0)
+- **Description**: Minimum elevation angle in degrees
+- **Range**: Internally clamped to [-89.9°, 89.9°]
+- **Usage**: Points below this elevation will be filtered out
+
+#### `max_altitude` (double, default: 90.0)
+- **Description**: Maximum elevation angle in degrees
+- **Range**: Internally clamped to [-89.9°, 89.9°]
+- **Usage**: Points above this elevation will be filtered out
+
+#### `min_azimuth` (double, default: -90.0)
+- **Description**: Minimum azimuth angle in degrees
+- **Range**: Internally clamped to [-89.9°, 89.9°]
+- **Usage**: Points to the left of this azimuth will be filtered out
+
+#### `max_azimuth` (double, default: 90.0)
+- **Description**: Maximum azimuth angle in degrees
+- **Range**: Internally clamped to [-89.9°, 89.9°]
+- **Usage**: Points to the right of this azimuth will be filtered out
+
+#### `min_distance` (double, default: 0.0)
+- **Description**: Minimum distance threshold in meters
+- **Usage**: Points closer than this distance will be filtered out
+
+#### `max_distance` (double, default: numeric_limits<float>::max())
+- **Description**: Maximum distance threshold in meters
+- **Usage**: Points farther than this distance will be filtered out
+- **Note**: Points beyond 500m are automatically filtered as invalid
+
+### Network Configuration
+
+#### `expected_sensor_ips` (vector<string>, default: empty)
+- **Description**: List of expected sensor IP addresses for monitoring
+- **Usage**: Enables proactive timeout detection for expected sensors
+- **Example**:
+```yaml
+expected_sensor_ips:
+  - "192.168.1.10"
+  - "192.168.1.11"
 ```
+
+## Published Topics
+
+### Standard Topics
+- **`cepton_pcl2`**: Main point cloud topic (sensor_msgs::PointCloud2)
+- **`cepton_info`**: Unified sensor information topic
+- **`cepton_sensor_status`**: Sensor status monitoring topic
+
+### Conditional Topics
+- **`handle_<HANDLE>`**: Per-handle point clouds (when `pcl2_output_type` includes "IP")
+- **`serial_<SERIAL_NUMBER>`**: Per-serial-number point clouds (when `pcl2_output_type` includes "SN")
+- **`info_handle_<HANDLE>`**: Per-sensor information topics
+
+## Point Cloud Fields
+
+### Standard Fields (always included)
+- **x, y, z** (float32): 3D coordinates in ROS coordinate system
+- **intensity** (float32): Reflectivity value (scaled by 0.01)
+
+### Optional Fields (compile-time flags)
+
+#### WITH_TS_CH_F Fields
+- **timestamp_s** (int32): Timestamp seconds portion
+- **timestamp_us** (int32): Timestamp microseconds portion  
+- **flags** (uint16): Point quality flags
+- **channel_id** (uint16): Sensor channel identifier
+
+#### WITH_POLAR Fields
+- **azimuth** (float32): Azimuth angle in radians
+- **elevation** (float32): Elevation angle in radians
+- **range** (float32): Distance measurement (0 for no-return points)
+
+## Coordinate System Transformation
+
+The publisher automatically converts from Cepton's coordinate system to ROS standard:
+
+## Message Types
+
+### CeptonSensorInfo
+Contains comprehensive sensor information:
+- `serial_number`, `handle`, `model_name`, `model`
+- `part_number`, `firmware_version`
+- `power_up_timestamp`, `time_sync_offset`, `time_sync_drift`
+- `return_count`, `channel_count`, `status_flags`
+- `temperature`, `fault_summary`, `fault_entries`
+
+### CeptonSensorStatus
+Monitoring message with:
+- `serial_number`, `handle`
+- `status` (e.g., `SENSOR_TIMED_OUT`)
+
+## Build Configuration
+
+### CMake Flags
+- **`-DWITH_POLAR=OFF`**: Disable polar coordinate fields
+- **`-DWITH_TS_CH_F=OFF`**: Disable timestamp, channel, and flag fields
+
+### Build Commands
+```bash
+# Standard build with all fields
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
+
+# Build with filtered fields
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
 ```
 
-## 2. Getting Started
-### 2.0 Building Source Locally
+## Monitoring and Status
 
-This step is only needed if building the SDK binaries locally. If you are running a released driver package, the binaries should already be included and you can skip to section 2.1.
-
-See root `README.md`. In short:
-```bash
-mkdir build-linux
-cd build-linux
-cmake .. -DINSTALL_INPLACE=ON -DINPLACE_ROS2=ON
-cmake --build . --config Release
-cmake --install . --config Release
-```
-
-### 2.1 Installation
-All steps are run from the `ros2` directory. Substitute `[VER]` for the SDK version you are using (i.e. 22, 23, 24, etc)
-``` sh
-# Setup the ROS2 environment with the installation version you have (humble example below)
-source /opt/ros/humble/setup.bash
-
-# Build the messages, publisher, and subscriber
-colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
-```
-### 2.2 Launching the Driver
-
-All steps are run from the `ros2` directory
-```sh
-# Terminal 1
-. install/setup.bash
-ros2 run cepton_publisher cepton_publisher_node
-```
-```
-# Terminal 2
-. install/setup.bash
-ros2 run cepton_subscriber cepton_subscriber_node
-```
-### 2.3 Displaying point cloud in Rviz2
-After installing `rviz` and starting it with `ros2 run rviz2 rviz2`, and also starting the publisher node, do the following configuration in the RVIZ UI to show the proper point cloud:
-
-* Under `global options`, change the `Fixed Frame` setting to read `cepton2`
-* Select `Add Topic` and add the `/cepton_pcl2` topic
-* Deselect `Autocompute Intensity` and change `Max Intensity` to `1`
-```
-Example of replaying a pcap on RVIZ2: 
-ros2 run cepton_publisher cepton_publisher_node --ros-args -p capture_file:="/path/to/pcap" -p capture_loop:=true
-```
-
-## 3. Configuration Parameter Arguments
-
-### 3.1 Publisher Parameter Arguments
-The publisher node can optionally be with any of the following arguments:
-* `capture_file` (string): the absolute path to a pcap file for replay
-* `capture_loop` (boolean): whether to replay the pcap in a loop, default=false
-* `sensor_port` (int): the port to listen for sensor UDP data, default=8808
-* `half_frequency_mode` (boolean): concatenates 2 frames into 1, publishing them effectively at half rate (not guaranteed every time.), default=false
-* `cepx_output_type` (string): configure if `cepx_points` format point cloud should be outputted. Can either output topic based on "IP", "SN" (serial number), "NONE", or "BOTH". default="BOTH".
-* `pcl2_output_type` (string): configure if `pcl2` format point cloud should be outputted. Can either output topic based on "IP", "SN" (serial number), "NONE", or "BOTH". default="BOTH".
-* `include_saturated_points` (boolean): include points with the CEPTON_POINT_SATURATED flag bit, default=false
-* `include_second_return_points` (boolean): include points with the CEPTON_POINT_SECOND_RETURN flag bit, default=false
-* `include_invalid_points` (boolean): include points with the CEPTON_POINT_NO_RETURN flag bit, default=false
-* `include_noise_points` (boolean): include points with the CEPTON_POINT_NOISE flag bit, default=false
-* `include_blocked_points` (boolean): include points with the CEPTON_POINT_BLOCKED flag bit, default=false
-* `min_altitude` (double): minimum altitude angle (in degrees) that is allowed, default=-90.0°
-* `max_altitude` (double): maximum altitude angle (in degrees) that is allowed, default=90.0°
-* `min_azimuth` (double): minimum azimuth angle (in degrees) that is allowed, default=-180.0°
-* `max_azimuth` (double): maximum azimuth angle (in degrees) that is allowed, default=180.0°
-```
-Example:
-ros2 run cepton_publisher cepton_publisher_node --ros-args -p capture_file:="/path/to/pcap" -p capture_loop:=true -p include_saturated_points:=true -p min_altitude:=-10.0
-```
-
-### 3.2 Subscriber Parameter Arguments
-**Optional subscriber options**
-
-If running the subscriber node sample, the following options are provided:
-* `subscribe_pcl2` (boolean)
-* `subscribe_cepton_points` (boolean)
-* `subscribe_cepton_info` (boolean)
-* `export_to_csv` (boolean): if true, then export `CeptonPointData` messages to a new directory `frames`, located in current working directory.
-
-## 4. Topics
-| Topic              | Type                                      | Description                                                             |
-| ------------------ | ----------------------------------------- | ----------------------------------------------------------------------- |
-| `handle_<ID>`      | `sensor_msgs::msg::PointCloud2`           | Per-sensor frame, where `<ID>` is the sensor's IP address as a `uint32` |
-| `serial_<ID>`      | `sensor_msgs::msg::PointCloud2`           | Per-sensor frame, where `<ID>` is the sensor's serial number            |
-| `cepx_handle_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's IP address as a `uint32` |
-| `cepx_serial_<ID>` | `cepton_messages::msg::CeptonPointData`   | Per-sensor frame, where `<ID>` is the sensor's serial number            |
-| `cepton_points`    | `cepton_messages::msg::CeptonPointData`   | All sensor frames are published over this topic                         |
-| `cepton_pcl2`      | `sensor_msgs::msg::PointCloud2`           | All sensor frames are published over this topic                         |
-| `cepton_info`      | `cepton_messages::msg::CeptonSensorInfo`  | Sensor info messages                                                    |
-| `cepton_panic`     | `cepton_messages::msg::CeptonSensorPanic` | Sensor panic messages                                                   |
-
-* Note that all `serial` fields only start publishing, after receiving the first info packet for the sensor, since the driver needs to associate IP to serial number in order to publish these topics.
+### Sensor Timeout Detection
+- **Timeout Duration**: 3 seconds (configurable via `SENSOR_POINTS_TIMEOUT`)
+- **Monitoring Thread**: Runs every 1 second to check sensor status
+- **Timeout Action**: Publishes `CeptonSensorStatus` message with `SENSOR_TIMED_OUT` status
