@@ -4,8 +4,13 @@ set(CEPTON_ROS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
 project(cepton_ros)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+# For using in vscode, you can set 'C_Cpp.default.compileCommands' in your vscode settings.json
+# to reflect these ifdefs to the code
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
+option(WITH_POLAR "Compile point types with polar coordinates" ON)
+option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -14,14 +19,12 @@ find_package(catkin REQUIRED COMPONENTS
   nodelet
   pcl_conversions
   pcl_ros
-  #pluginlib
   roscpp
   roslib
   rospy
   std_msgs
   message_generation
 )
-
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -35,12 +38,9 @@ add_message_files(
   CeptonSensorStatus.msg
 )
 
-
 ###################################################################
 # Link the SDK, first get the binaries for the correct architecture
-
 set(SDK_VERSION 3.0.18.0)
-
 
 # Get the path of this cmake lists file. We'll use it to find the SDK which should
 # have also been downloaded as part of the repo
@@ -84,7 +84,6 @@ add_library(
 )
 
 list(APPEND CEPTON_ROS_LIBRARIES cepton_ros)
-
 message("Including ${CEPTON_SDK3_INCLUDE}")
 include_directories(${CEPTON_SDK3_INCLUDE})
 
@@ -95,6 +94,19 @@ foreach(name IN LISTS CEPTON_ROS_LIBRARIES)
                    $<INSTALL_INTERFACE:include>)
   target_link_libraries(${name} ${catkin_LIBRARIES} ${CEPTON_SDK3_LIB})
   add_dependencies(${name} cepton_ros_generate_messages_cpp)
+
+  # If building with the polar coordinates then set the 
+  # preprocessor definition
+  if (WITH_POLAR)
+    target_compile_definitions(${name} PUBLIC WITH_POLAR)
+  endif()
+
+  # If building with the timestamp, channel, flag, then set the 
+  # preprocessor definition
+  if (WITH_TS_CH_F)
+    target_compile_definitions(${name} PUBLIC WITH_TS_CH_F)
+  endif()
+
 endforeach()
 
 catkin_package(

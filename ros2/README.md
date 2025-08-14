@@ -23,6 +23,12 @@ The driver includes two things:
 `cepton_publisher`
 * Publishes topics for different lidar messages. See [Topics](#4-topics) for available topics.
 
+
+Building
+```
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
+```
+
 ## 2. Getting Started
 ### 2.0 Building Source Locally
 

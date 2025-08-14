@@ -8,12 +8,11 @@
             "cppStandard": "gnu++14",
             "includePath": [
                 "/home/cepton/ros/cepton-sdk-3.0.18.0/include",
-                "/opt/ros/noetic/include/**",
-                "/home/cepton/catkin_ws/src/ros/include",
-                "/usr/include/pcl-1.10/",
+                "/opt/ros/galactic/include/**",
                 "/usr/include/eigen3/",
-                "${workspaceFolder}/include",
-                "/home/cepton/catkin_ws/devel/include"
+                "/home/cepton/ros/ros2/cepton_publisher/include",
+                "/home/cepton/ros/ros2/cepton_subscriber/include",
+                "/home/cepton/ros/ros2/install/cepton_messages/include"
             ]
         }
     ],

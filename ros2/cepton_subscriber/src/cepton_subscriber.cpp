@@ -27,12 +27,10 @@ struct CeptonPointEx {
 
 CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
   bool subscribePcl2 = false;
-  bool subscribeCeptonPoints = false;
   bool subscribeCeptonInfo = false;
   bool subscribeCeptonPanic = false;
 
   declare_parameter("subscribe_pcl2", subscribePcl2);
-  declare_parameter("subscribe_cepton_points", subscribeCeptonPoints);
   declare_parameter("subscribe_cepton_info", subscribeCeptonInfo);
   declare_parameter("subscribe_cepton_panic", subscribeCeptonPanic);
   declare_parameter("export_to_csv", export_to_csv_);
@@ -41,12 +39,6 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
   rclcpp::Parameter pSubscribePcl2 = get_parameter("subscribe_pcl2");
   if (pSubscribePcl2.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET)
     subscribePcl2 = pSubscribePcl2.as_bool();
-
-  rclcpp::Parameter pSubscribeCeptonPoints =
-      get_parameter("subscribe_cepton_points");
-  if (pSubscribeCeptonPoints.get_type() !=
-      rclcpp::ParameterType::PARAMETER_NOT_SET)
-    subscribeCeptonPoints = pSubscribeCeptonPoints.as_bool();
 
   rclcpp::Parameter pSubscribeCeptonInfo =
       get_parameter("subscribe_cepton_info");
@@ -63,13 +55,6 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber") {
     pointsSubscriber = create_subscription<PointCloud2>(
         "cepton_pcl2", 10,
         bind(&CeptonSubscriber::recv_points, this, placeholders::_1));
-
-  // Subscribe to CeptonPointData
-  if (subscribeCeptonPoints)
-    ceptonPointsSubscriber =
-        create_subscription<cepton_messages::msg::CeptonPointData>(
-            "cepton_points", 50,
-            bind(&CeptonSubscriber::recv_cep_points, this, placeholders::_1));
 
   // Subscribe to info messages
   if (subscribeCeptonInfo)
@@ -95,13 +80,9 @@ void CeptonSubscriber::recv_points(
   sensor_msgs::PointCloud2ConstIterator<float> y_iter(p, "y");
   sensor_msgs::PointCloud2ConstIterator<float> z_iter(p, "z");
   sensor_msgs::PointCloud2ConstIterator<float> i_iter(p, "intensity");
-  sensor_msgs::PointCloud2ConstIterator<int32_t> t_iter(p, "timestamp_s");
-  sensor_msgs::PointCloud2ConstIterator<int32_t> t_us_iter(p, "timestamp_us");
-  sensor_msgs::PointCloud2ConstIterator<uint8_t> f_iter(p, "flags");
-  sensor_msgs::PointCloud2ConstIterator<uint8_t> c_iter(p, "channel_id");
-  sensor_msgs::PointCloud2ConstIterator<float> azim_iter(p, "azimuth");
-  sensor_msgs::PointCloud2ConstIterator<float> elev_iter(p, "elevation");
-  sensor_msgs::PointCloud2ConstIterator<float> dist_iter(p, "distance");
+
+  // You can add additional iterators depending on which fields the publisher
+  // was compiled with
 
   // Check if directory exists
   const string dir = "frames";
@@ -116,56 +97,16 @@ void CeptonSubscriber::recv_points(
     cout << "Exporting to " << frameNum << endl;
     auto f = dir + "/" + to_string(frameNum++) + ".csv";
     ofstream s(f);
-    s << "timestamp,x,y,z,c,flag,azimuth,elevation,distance" << endl;
+    s << "x,y,z,intensity" << endl;
 
-    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter,
-             ++t_iter, ++t_us_iter, ++c_iter, ++f_iter, ++azim_iter,
-             ++elev_iter, ++dist_iter) {
-      s << (*t_iter * 1e6 + *t_us_iter) << "," << *x_iter << "," << *y_iter
-        << "," << *z_iter << "," << static_cast<int>(*c_iter) << ","
-        << static_cast<int>(*f_iter) << "," << *azim_iter << "," << *elev_iter
-        << "," << *dist_iter << endl;
+    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter) {
+      s << *x_iter << "," << *y_iter << "," << *z_iter << "," << *i_iter
+        << endl;
     }
   } else {
-    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter,
-             ++t_iter, ++t_us_iter, ++c_iter) {
-      printf(
-          "Timestamp(sec): %u\tChannel: %d\tX: %f\tY: %f\tZ: %f\tIntensity: "
-          "%f\n",
-          *t_iter, *c_iter, *x_iter, *y_iter, *z_iter, *i_iter);
+    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter) {
+      printf("X: %f\tY: %f\tZ: %f\tIntensity: %f\n", *x_iter, *y_iter, *z_iter,
+             *i_iter);
     }
   }
-}
-
-// Sample of exporting the published points
-void export_csv(cepton_messages::msg::CeptonPointData::SharedPtr pPoints) {
-  static int cepFrameNum = 0;
-
-  // Check if directory exists
-  const string dir = "cep_frames";
-  struct stat info;
-  if (stat(dir.c_str(), &info) != 0 || !(info.st_mode & S_IFDIR))
-    mkdir(dir.c_str(), S_IRWXU);
-
-  auto f = dir + "/" + to_string(cepFrameNum++) + ".csv";
-  ofstream s(f);
-  s << "timestamp,x,y,z,c,r,flag,azimuth,elevation,distance" << endl;
-
-  int64_t t = pPoints->start_timestamp;
-  const uint8_t* points = pPoints->points.data();
-  for (size_t i = 0; i < pPoints->n_points; i++) {
-    const struct CeptonPointEx* pt =
-        (const CeptonPointEx*)(points + i * sizeof(CeptonPointEx));
-    t += pt->relative_timestamp;
-    s << t << "," << pt->x << "," << pt->y << "," << pt->z << ","
-      << (int)pt->channel_id << "," << pt->reflectivity << "," << (int)pt->flags
-      << endl;
-  }
-}
-
-void CeptonSubscriber::recv_cep_points(
-    const cepton_messages::msg::CeptonPointData::SharedPtr points) {
-  printf("Handle:%ld\tNPts:%d\t\n", points->handle, points->n_points);
-
-  if (export_to_csv_) export_csv(points);
 }

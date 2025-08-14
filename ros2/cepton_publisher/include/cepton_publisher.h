@@ -1,8 +1,4 @@
-#define _USE_MATH_DEFINES
-
-#include <cepton_sdk3.h>
-#include <dlfcn.h>
-
+#pragma once
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -13,21 +9,13 @@
 #include <tuple>
 #include <vector>
 
-#include "cepton_messages/msg/cepton_point_data.hpp"
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "cepton_messages/msg/cepton_sensor_status.hpp"
+#include "cepton_sdk3.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "std_msgs/msg/string.hpp"
-
-enum PointFieldOptions : uint16_t {
-  CARTESIAN = 1 << 0,
-  SPHERICAL = 1 << 1,
-  TIMESTAMP = 1 << 2,
-  INTENSITY = 1 << 3,
-  ALL = 0xFFFF
-};
 
 namespace cepton_ros {
 
@@ -38,12 +26,17 @@ enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
  */
 class CeptonPublisher : public rclcpp::Node {
  public:
-  typedef rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
-      PointPublisher;
-  typedef rclcpp::Publisher<cepton_messages::msg::CeptonPointData>::SharedPtr
-      CepPointPublisher;
-  typedef rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr
-      CepInfoPublisher;
+  using PointPublisher =
+      rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
+  using PointPublisherMap =
+      std::unordered_map<CeptonSensorHandle, PointPublisher>;
+  using InfoPublisher =
+      rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr;
+  using InfoPublisherMap =
+      std::unordered_map<CeptonSensorHandle, InfoPublisher>;
+  using StatusPublisher =
+      rclcpp::Publisher<cepton_messages::msg::CeptonSensorStatus>::SharedPtr;
+  using SerialNumberMap = std::unordered_map<CeptonSensorHandle, uint32_t>;
 
   CeptonPublisher();
   ~CeptonPublisher();
@@ -51,81 +44,29 @@ class CeptonPublisher : public rclcpp::Node {
  private:
   CeptonReplayHandle replay_handle = 0;
 
-  // Edited
-  friend void sensorFrameCallback(CeptonSensorHandle handle,
-                                  int64_t start_timestamp, size_t n_points,
-                                  const struct CeptonPointEx *points,
-                                  void *user_data);
-  /**
-   * @brief Internal points callback invoked by SDK. Publishes points in format
-   * CeptonPointDataEx (see cepton_sdk2.h)
-   *
-   * @param handle
-   * @param start_timestamp
-   * @param n_points The number of points we need to copy
-   * @param stride
-   * @param points
-   * @param node
-   */
-
-  // Edited
-  friend void ceptonFrameCallback(CeptonSensorHandle handle,
-                                  int64_t start_timestamp, size_t n_points,
-                                  const struct CeptonPointEx *points,
-                                  void *user_data);
-
-  /**
-   * @brief SDK info callback
-   *
-   * @param handle
-   * @param info
-   * @param node
-   */
-  friend void sensor_info_callback(CeptonSensorHandle handle,
-                                   const struct CeptonSensor *info, void *node);
-
   /**
    * @brief Responsible for publishing the points received from the SDK
    * callback functions. Publish points in format msg::PointCloud2
    *
    */
   PointPublisher points_publisher;
-  std::unordered_map<CeptonSensorHandle, PointPublisher>
-      handle_points_publisher;
-  std::unordered_map<CeptonSensorHandle, PointPublisher>
-      serial_points_publisher;
-
-  std::unordered_map<CeptonSensorHandle, std::vector<uint8_t>> handle_to_points;
-  std::mutex handle_to_points_mutex_;
-  std::unordered_map<CeptonSensorHandle, int64_t> handle_to_start_timestamp;
-
-  /**
-   * @brief Responsible for publishing the points received from the SDK callback
-   * functions. Publish points in format cepton_messages::msg::CeptonPointData
-   *
-   */
-  CepPointPublisher cep_points_publisher;
-  std::unordered_map<CeptonSensorHandle, CepPointPublisher>
-      handle_cep_points_publisher;
-  std::unordered_map<CeptonSensorHandle, CepPointPublisher>
-      serial_cep_points_publisher;
+  PointPublisherMap handle_points_publisher;
+  PointPublisherMap serial_points_publisher;
 
   /**
    * @brief Responsible for publishing the sensor info packets
    */
-  CepInfoPublisher info_publisher;
+  InfoPublisher info_publisher;
 
   /**
    * @brief Responsible for publishing info messages on per-sensor topics
    */
-  std::unordered_map<CeptonSensorHandle, CepInfoPublisher>
-      handle_to_info_publisher;
+  InfoPublisherMap handle_to_info_publisher;
 
   /**
    * @brief Publishes sensor status messages
    */
-  rclcpp::Publisher<cepton_messages::msg::CeptonSensorStatus>::SharedPtr
-      sensor_status_publisher;
+  StatusPublisher sensor_status_publisher;
 
   std::thread sensor_status_thread;
 
@@ -136,7 +77,7 @@ class CeptonPublisher : public rclcpp::Node {
                      std::chrono::time_point<std::chrono::system_clock>>
       last_points_time_;
 
-  std::unordered_map<CeptonSensorHandle, uint32_t> handle_to_serial_number_;
+  SerialNumberMap handle_to_serial_number_;
 
   std::mutex status_lock_;
 
@@ -156,19 +97,16 @@ class CeptonPublisher : public rclcpp::Node {
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
 
-  bool use_handle_for_cepx_{true};
-  bool use_sn_for_cepx_{true};
+  /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
+
+  /** If true, publish pcl2 by serial number */
   bool use_sn_for_pcl2_{true};
 
-  bool half_frequency_mode_{false};
-
-  int frame_aggregation_mode_{CEPTON_AGGREGATION_MODE_NATURAL};
-
-  double min_altitude_{-90};
-  double max_altitude_{90};
-  double min_azimuth_{-180};
-  double max_azimuth_{180};
+  double min_altitude_{-90.};
+  double max_altitude_{90.};
+  double min_azimuth_{-90.};
+  double max_azimuth_{90.};
 
   double min_image_x_{0.0};
   double max_image_x_{0.0};
@@ -178,63 +116,17 @@ class CeptonPublisher : public rclcpp::Node {
   double min_distance_{0.0};
   double max_distance_{std::numeric_limits<float>::max()};
 
-  void ensure_pcl2_publisher(
-      CeptonSensorHandle handle, std::string const &topic,
-      std::unordered_map<CeptonSensorHandle, PointPublisher> &m);
-  void ensure_cepx_publisher(
-      CeptonSensorHandle handle, std::string const &topic,
-      std::unordered_map<CeptonSensorHandle, CepPointPublisher> &m);
-  void ensure_info_publisher(
-      CeptonSensorHandle handle, std::string const &topic,
-      std::unordered_map<CeptonSensorHandle, CepInfoPublisher> &m);
-
-  /**
-   * @brief Determine which coordinate system is used. Cepton coordinate system
-   * is the system used in the CeptonViewer, where X = right, Y = in, Z = up.
-   * If false, then ROS coordinate system is used (X = in, Y = left, Z = up)
-   *
-   */
-  bool using_cepton_coordinate_system_{true};
-
- private:
-  /**
-   * Not yet fully implemented; leaving the std::optional code in place
-   * because Vista Ultra and Nova Ultra will have much higher-volume data and we
-   * may want to reduce the packet size, or use only certain fields.
-   */
-  uint32_t point_field_options_ = ALL;
+  void ensure_pcl2_publisher(CeptonSensorHandle handle,
+                             std::string const &topic, PointPublisherMap &m);
+  void ensure_info_publisher(CeptonSensorHandle handle,
+                             std::string const &topic, InfoPublisherMap &m);
+  std::future<void> pub_fut_;
 
  public:
-  /**
-   * @brief Helper method - create an optional iterator for a field.
-   * The optional will be nullopt if the flag isn't set in the point field
-   * options
-   */
-  template <typename T>
-  std::optional<sensor_msgs::PointCloud2Iterator<T>> make_optional_iter(
-      sensor_msgs::msg::PointCloud2 &cloud, std::string const &name) {
-    // Store a cached value for each field name
-    static std::unordered_map<std::string, bool> lookup_cache;
+  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
+                      size_t n_points, const CeptonPointEx *points);
 
-    // If we've not checked for this field yet, search the cloud names
-    if (!lookup_cache.count(name))
-      lookup_cache[name] =
-          cloud.fields.end() !=
-          std::find_if(cloud.fields.begin(), cloud.fields.end(),
-                       [&name](const sensor_msgs::msg::PointField &field) {
-                         return field.name == name;
-                       });
-
-    // Return a value if the field was found, else return nullopt
-    return lookup_cache[name]
-               ? std::make_optional(
-                     sensor_msgs::PointCloud2Iterator<T>(cloud, name))
-               : std::nullopt;
-  }
-
-  void publish_async(CeptonSensorHandle handle);
-
-  std::future<void> pub_fut_;
+  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor *info);
 };
 
 }  // namespace cepton_ros

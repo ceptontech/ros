@@ -6,10 +6,9 @@
 # These parameters will be applied to a node launched with name `cepton_publisher`
 /cepton_publisher:
   ros__parameters:
-    capture_file: "/home/wlauer/Documents/freeway-143.pcap"
+    capture_file: ""
     capture_loop: true
     sensor_port: 8808
-    half_frequency_mode: false
     cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true
@@ -20,8 +19,6 @@
     max_altitude: 90.0
     min_azimuth: -90.0
     max_azimuth: 90.0
-    aggregation_mode: 0
-    using_cepton_coordinate_system: false
     max_distance: 1000.0
     min_distance: 0.0
 
