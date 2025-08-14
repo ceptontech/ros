@@ -152,8 +152,8 @@ popd
 pushd catkin_ws
 catkin_make
 
-# Build with specific fields
-catkin_make -DWITH_TS_CH_F=ON -DWITH_POLAR=ON
+# Build with fewer fields
+catkin_make -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
 ```
 
 ## Monitoring and Status
