@@ -13,16 +13,6 @@
 
 #include "cepton_messages/cepton_messages.h"
 
-/**
- * Set to 1 to include polar coordinates in the output
- */
-#define WITH_POLAR 0
-
-/**
- * Set to 1 to include timestamp, channel id, point flag, in the output
- */
-#define WITH_TS_CH_F 0
-
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointField = sensor_msgs::msg::PointField;
 using namespace std::chrono_literals;
@@ -133,10 +123,10 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
   int n_fields = 4;
-#if WITH_TS_CH_F
+#ifdef WITH_TS_CH_F
   n_fields += 4;
 #endif
-#if WITH_POLAR
+#ifdef WITH_POLAR
   n_fields += 3;
 #endif
 
@@ -147,14 +137,14 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
               "y", 1, PointField::FLOAT32,
               "z", 1, PointField::FLOAT32,
               "intensity", 1, PointField::FLOAT32
-              #if WITH_TS_CH_F
+              #ifdef WITH_TS_CH_F
               ,
               "timestamp_s", 1, PointField::INT32,
               "timestamp_us", 1, PointField::INT32,
               "flags", 1, PointField::UINT16,
               "channel_id", 1, PointField::UINT16
               #endif
-              #if WITH_POLAR
+              #ifdef WITH_POLAR
               ,
               "azimuth", 1, PointField::FLOAT32,
               "elevation", 1, PointField::FLOAT32,
@@ -175,7 +165,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto intensity_iter =
       sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
 
-#if WITH_TS_CH_F
+#ifdef WITH_TS_CH_F
   auto timestamp_sec_iter =
       sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
   auto timestamp_usec_iter =
@@ -185,7 +175,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
       sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
 #endif
 
-#if WITH_POLAR
+#ifdef WITH_POLAR
   auto azim_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "azimuth");
   auto elev_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "elevation");
   auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
@@ -254,7 +244,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     *intensity_iter = p0.reflectivity * 0.01;
     ++intensity_iter;
 
-#if WITH_TS_CH_F
+#ifdef WITH_TS_CH_F
     // timestamp - seconds
     *timestamp_sec_iter = timestamp / (int64_t)1e6;
     ++timestamp_sec_iter;
@@ -272,7 +262,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     ++channel_id_iter;
 #endif
 
-#if WITH_POLAR
+#ifdef WITH_POLAR
     const double azimuth_rad = atan(image_x);
     const double elevation_rad = atan2(image_z, sqrt(image_x * image_x + 1));
 

@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.5)
 project(cepton_publisher)
 
+# Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
+option(WITH_POLAR "Compile point types with polar coordinates" ON)
+option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
+
+
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)

@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.8)
 project(cepton_subscriber)
 
+# Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
+option(WITH_POLAR "Compile point types with polar coordinates" ON)
+option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
+
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -35,6 +40,14 @@ add_library(cepton_subscriber SHARED src/cepton_subscriber.cpp)
 target_include_directories(
   cepton_subscriber PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
                            $<INSTALL_INTERFACE:${PROJECT_NAME}/include>)
+
+if (WITH_POLAR)
+  target_compile_definitions(cepton_subscriber PRIVATE WITH_POLAR)
+endif()
+if (WITH_TS_CH_F)
+  target_compile_definitions(cepton_subscriber PRIVATE WITH_TS_CH_F)
+endif()
+
 # Link ros dependencies
 ament_target_dependencies(${PROJECT_NAME} PUBLIC rclcpp_components rclcpp
                           std_msgs sensor_msgs cepton_messages)

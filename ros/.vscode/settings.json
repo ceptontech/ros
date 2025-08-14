@@ -1,5 +1,4 @@
 {
-    "C_Cpp.default.compileCommands": "/home/cepton/catkin_ws/build/compile_commands.json",
     "files.associations": {
         "chrono": "cpp",
         "random": "cpp",

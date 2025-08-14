@@ -80,13 +80,9 @@ void CeptonSubscriber::recv_points(
   sensor_msgs::PointCloud2ConstIterator<float> y_iter(p, "y");
   sensor_msgs::PointCloud2ConstIterator<float> z_iter(p, "z");
   sensor_msgs::PointCloud2ConstIterator<float> i_iter(p, "intensity");
-  sensor_msgs::PointCloud2ConstIterator<int32_t> t_iter(p, "timestamp_s");
-  sensor_msgs::PointCloud2ConstIterator<int32_t> t_us_iter(p, "timestamp_us");
-  sensor_msgs::PointCloud2ConstIterator<uint8_t> f_iter(p, "flags");
-  sensor_msgs::PointCloud2ConstIterator<uint8_t> c_iter(p, "channel_id");
-  sensor_msgs::PointCloud2ConstIterator<float> azim_iter(p, "azimuth");
-  sensor_msgs::PointCloud2ConstIterator<float> elev_iter(p, "elevation");
-  sensor_msgs::PointCloud2ConstIterator<float> dist_iter(p, "distance");
+
+  // You can add additional iterators depending on which fields the publisher
+  // was compiled with
 
   // Check if directory exists
   const string dir = "frames";
@@ -101,23 +97,16 @@ void CeptonSubscriber::recv_points(
     cout << "Exporting to " << frameNum << endl;
     auto f = dir + "/" + to_string(frameNum++) + ".csv";
     ofstream s(f);
-    s << "timestamp,x,y,z,c,flag,azimuth,elevation,distance" << endl;
+    s << "x,y,z,intensity" << endl;
 
-    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter,
-             ++t_iter, ++t_us_iter, ++c_iter, ++f_iter, ++azim_iter,
-             ++elev_iter, ++dist_iter) {
-      s << (*t_iter * 1e6 + *t_us_iter) << "," << *x_iter << "," << *y_iter
-        << "," << *z_iter << "," << static_cast<int>(*c_iter) << ","
-        << static_cast<int>(*f_iter) << "," << *azim_iter << "," << *elev_iter
-        << "," << *dist_iter << endl;
+    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter) {
+      s << *x_iter << "," << *y_iter << "," << *z_iter << "," << *i_iter
+        << endl;
     }
   } else {
-    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter,
-             ++t_iter, ++t_us_iter, ++c_iter) {
-      printf(
-          "Timestamp(sec): %u\tChannel: %d\tX: %f\tY: %f\tZ: %f\tIntensity: "
-          "%f\n",
-          *t_iter, *c_iter, *x_iter, *y_iter, *z_iter, *i_iter);
+    for (int i = 0; i < n; ++i, ++x_iter, ++y_iter, ++z_iter, ++i_iter) {
+      printf("X: %f\tY: %f\tZ: %f\tIntensity: %f\n", *x_iter, *y_iter, *z_iter,
+             *i_iter);
     }
   }
 }
