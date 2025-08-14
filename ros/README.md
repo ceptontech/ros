@@ -156,6 +156,18 @@ catkin_make
 catkin_make -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
 ```
 
+### Run Commands
+```bash
+# In terminal 1
+source devel/setup.bash
+roslaunch cepton_ros manager.launch
+
+# In terminal 2
+source devel/setup.bash
+roslaunch cepton_ros publisher.launch
+```
+
+
 ## Monitoring and Status
 
 ### Sensor Timeout Detection
