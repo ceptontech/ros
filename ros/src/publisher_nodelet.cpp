@@ -275,7 +275,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
       // If point has flags that should not be included (specified by the
       // include_flag), continue
-      if ((~include_flag_ & p.flags) != 0) continue;
+      if ((~include_flag_ & static_cast<uint8_t>(p.flags & 0x00ff)) != 0) continue;
 
       // Convert the units to meters (SDK unit is 1.0 / 65536.0)
       float x = static_cast<float>(p.x) / 65536.0;
