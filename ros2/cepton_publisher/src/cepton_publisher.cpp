@@ -479,6 +479,11 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   RCLCPP_DEBUG(this->get_logger(), "Including Blocked points: %s",
                pKeepBlocked.as_bool() ? "true" : "false");
 
+  rclcpp::Parameter pKeepAmbient = get_parameter("include_ambient_points");
+  include_flag_ |= (pKeepAmbient.as_bool() ? CEPTON_POINT_AMBIENT : 0);
+  RCLCPP_DEBUG(this->get_logger(), "Including Ambient points: %s",
+               pKeepAmbient.as_bool() ? "true" : "false");
+
   RCLCPP_DEBUG(this->get_logger(),
                "=================================================");
 

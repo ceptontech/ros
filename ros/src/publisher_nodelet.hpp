@@ -89,8 +89,11 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   Ambient point information exists for all points, the corresponding flag bit
   for ambient point is (1 << 15), hence the inclusion to include_flag_*/
+  const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
+
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                           CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
+                           CEPTON_POINT_FRAME_BOUNDARY;
+  
   CeptonReplayHandle replay_handle_{0};
 
   /** If set to true, the nodelet will advertise topics by sensor handle */

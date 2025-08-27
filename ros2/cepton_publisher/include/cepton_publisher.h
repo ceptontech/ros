@@ -94,8 +94,10 @@ class CeptonPublisher : public rclcpp::Node {
 
     Ambient point information exists for all points, the corresponding flag bit
     for ambient point is (1 << 15), hence the inclusion to include_flag_*/
+  const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
+
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                           CEPTON_POINT_FRAME_BOUNDARY | (1 << 15);
+                           CEPTON_POINT_FRAME_BOUNDARY;
 
   /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
