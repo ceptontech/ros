@@ -127,6 +127,10 @@ void PublisherNodelet::onInit() {
     include_flag_ |= (include ? CEPTON_POINT_BLOCKED : 0);
     ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
+    private_node_handle_.param("include_ambient_points", include, false);
+    include_flag_ |= (include ? CEPTON_POINT_AMBIENT : 0);
+    ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
+
     ROS_INFO("=================================================\n");
   }
 
@@ -290,6 +294,11 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       }
 
       const float distance_squared = x * x + y * y + z * z;
+
+      // Filter out points that are labelled ambient but have invalid
+      // distance until point flag definitions are finalized (> 500m for
+      // now)
+      if (distance_squared >= 500 * 500) continue;
 
       const float tan_yx = y / x;
       const float tan_zx = z / x;

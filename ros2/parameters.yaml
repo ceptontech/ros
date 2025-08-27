@@ -15,6 +15,7 @@
     include_second_return_points: false
     include_invalid_points: false
     include_blocked_points: true
+    include_ambient_points: true # set to false if ambient mode is not enabled from firmware
     min_altitude: -90.0
     max_altitude: 90.0
     min_azimuth: -90.0
