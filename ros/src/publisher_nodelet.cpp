@@ -100,7 +100,7 @@ void PublisherNodelet::onInit() {
   // Check for which points should be included based on params for flag bits
   {
     bool include = true;
-    include_flag_ = 0;
+
     ROS_INFO("============= Point Flag Parameters =============\n");
 
     private_node_handle_.param("include_saturated_points", include, true);
@@ -128,9 +128,6 @@ void PublisherNodelet::onInit() {
     ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
     ROS_INFO("=================================================\n");
-
-    include_flag_ |= CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                     CEPTON_POINT_FRAME_BOUNDARY;
   }
 
   // Assign publisher for info
@@ -275,7 +272,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
       // If point has flags that should not be included (specified by the
       // include_flag), continue
-      if ((~include_flag_ & static_cast<uint8_t>(p.flags & 0x00ff)) != 0) continue;
+      if ((~include_flag_ & p.flags) != 0) continue;
 
       // Convert the units to meters (SDK unit is 1.0 / 65536.0)
       float x = static_cast<float>(p.x) / 65536.0;
