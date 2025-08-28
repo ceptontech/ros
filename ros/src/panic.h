@@ -1,0 +1,36 @@
+#pragma once
+
+#include <assert.h>
+#include <stdint.h>
+typedef enum {
+  RATIONALITY_POINT_SEQUENCE_NUMBER_INCONTINUITY = 0x00000000,
+  RATIONALITY_MMT_GAIN_SETTING_VALUE_ERROR       = 0x00000100,
+  CHECKSUM_IGUANA_IOX_COMM_ERROR                 = 0x01000000,
+  CHECKSUM_IOX_GECKO_COMM_ERROR                  = 0x01000100,
+  CHECKSUM_GECKO_KOMODO_COMM_ERROR               = 0x01000200,
+  CHECKSUM_POINT_CLOUD_PACKET                    = 0x01000300,
+  FPGA_RUNTIME_FAILURE                           = 0x01000500,
+  IGUANA_HEARTBEAT_FAILURE                       = 0x01000600,
+  TEMPERATURE_KOMODO_ERROR                       = 0x02000000,
+  TEMPERATURE_IOX_ERROR                          = 0x02000100,
+  TEMPERATURE_IGUANA_ERROR                       = 0x02000200,
+  TEMPERATURE_GECKO_ERROR                        = 0x02000300,
+  TEMPERATURE_THERMAL_SHUTDOWN                   = 0x02000500,
+  VOLTAGE_KOMODO_0V8                             = 0x03000000,
+  VOLTAGE_KOMODO_1V0                             = 0x03000100,
+  VOLTAGE_KOMODO_1V8                             = 0x03000200,
+  VOLTAGE_KOMODO_3V3                             = 0x03000300,
+  VOLTAGE_MOTOR_5V3                              = 0x03000400,
+  VOLTAGE_OM_5V3                                 = 0x03000500,
+  VOLTAGE_LASER_32V                              = 0x03000600,
+  BOOT_ROM_CHECKSUM_ERROR                        = 0x04000000,
+  BOOT_IGUANA_FAILURE                            = 0x04000100,
+  BOOT_GECKO_FAILURE                             = 0x04000200,
+  ETH_LINK_DOWN                                  = 0x05000000,
+  ETH_COMM_PTP_EXPIRATION                        = 0x05000200,
+  ETH_COMM_PTP_SYNC_ERROR                        = 0x05000300,
+  LASERS_PARTIAL_BLOCKAGE                        = 0x06000100,
+  LASERS_FULL_BLOCKAGE                           = 0x06000200,
+  MMT_MOTION_INTERLOCK                           = 0x07000300,
+  MMT_TIMEOUT                                    = 0x07000400,
+} fault_id_t;
