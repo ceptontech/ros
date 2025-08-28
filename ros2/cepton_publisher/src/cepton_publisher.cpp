@@ -353,6 +353,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("include_invalid_points", false);
   declare_parameter("include_noise_points", false);
   declare_parameter("include_blocked_points", true);
+  declare_parameter("include_ambient_points", true);
   declare_parameter("min_altitude", -90.);
   declare_parameter("max_altitude", 90.);
   declare_parameter("min_azimuth", -90.);
