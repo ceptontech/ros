@@ -93,6 +93,7 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY;
+
   CeptonReplayHandle replay_handle_{0};
 
   /** If set to true, the nodelet will advertise topics by sensor handle */
