@@ -130,7 +130,7 @@ void PublisherNodelet::onInit() {
     private_node_handle_.param("include_ambient_points", include, false);
     include_flag_ |= (include ? CEPTON_POINT_AMBIENT : 0);
     ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
-
+    
     ROS_INFO("=================================================\n");
   }
 
