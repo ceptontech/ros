@@ -40,7 +40,7 @@ add_message_files(
 
 ###################################################################
 # Link the SDK, first get the binaries for the correct architecture
-set(SDK_VERSION 3.0.18.0)
+set(SDK_VERSION 3.0.19.5)
 
 # Get the path of this cmake lists file. We'll use it to find the SDK which should
 # have also been downloaded as part of the repo
