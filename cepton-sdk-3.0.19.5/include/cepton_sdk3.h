@@ -879,8 +879,6 @@ CEPTON_EXPORT int CeptonFrameFifoExFull();
 //                                                  size_t dataLen,
 //                                                  int64_t timestamp);
 
-
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif
