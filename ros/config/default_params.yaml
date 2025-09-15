@@ -6,7 +6,7 @@ include_second_return_points: true
 include_invalid_points: false
 include_noise_points: false
 include_blocked_points: true
-include_ambient_points: true # set to false for STDV7 TOF, default is true
+include_ambient_points: true # set to false if ambient mode is not enabled from firmware
 output_by_handle: true
 output_by_sn: true
 min_altitude: -90.
