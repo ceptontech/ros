@@ -147,6 +147,14 @@ void PublisherNodelet::onInit() {
   ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_api_error(ret, "CeptonInitialize");
 
+  if (include_flag_ & CEPTON_POINT_AMBIENT) {
+    ret = CeptonSetSdkControlFlags(0x0);
+    check_api_error(ret, "CeptonSetSdkControlFlags");
+  } else {
+    ret = CeptonSetSdkControlFlags(0x1);
+    check_api_error(ret, "CeptonSetSdkControlFlags");
+  }
+
   // Start SDK CaptureReplay or Networking
   if (!capture_path.empty()) {
     ret = CeptonReplayLoadPcap(capture_path.c_str(), replay_flags,

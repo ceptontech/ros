@@ -523,6 +523,8 @@ CEPTON_EXPORT int CeptonRegisterParser(CeptonParserCallback callback,
 CEPTON_EXPORT int CeptonUnregisterParser(CeptonParserCallback callback,
                                          void *user_data);
 
+CEPTON_EXPORT int CeptonSetSdkControlFlags(uint32_t flags);
+
 //------------------------------------------------------------------------------
 // Sensor Information
 //------------------------------------------------------------------------------
@@ -874,6 +876,8 @@ CEPTON_EXPORT int CeptonFrameFifoExFull();
 //                                                  uint8_t const *data,
 //                                                  size_t dataLen,
 //                                                  int64_t timestamp);
+
+
 
 #ifdef __cplusplus
 }  // extern "C"
