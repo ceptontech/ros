@@ -148,10 +148,10 @@ void PublisherNodelet::onInit() {
   check_api_error(ret, "CeptonInitialize");
 
   if (include_flag_ & CEPTON_POINT_AMBIENT) {
-    ret = CeptonSetSdkControlFlags(0x0);
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT);
     check_api_error(ret, "CeptonSetSdkControlFlags");
   } else {
-    ret = CeptonSetSdkControlFlags(0x1);
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_TOF);
     check_api_error(ret, "CeptonSetSdkControlFlags");
   }
 

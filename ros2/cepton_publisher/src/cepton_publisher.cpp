@@ -489,11 +489,11 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
                "=================================================");
 
   if (include_flag_ & CEPTON_POINT_AMBIENT) {
-    ret = CeptonSetSdkControlFlags(0x0);
-    check_api_error(ret, "CeptonSetSdkControlFlags");
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT);
+    check_sdk_error(ret, "CeptonSetSdkControlFlags");
   } else {
-    ret = CeptonSetSdkControlFlags(0x1);
-    check_api_error(ret, "CeptonSetSdkControlFlags");
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_TOF);
+    check_sdk_error(ret, "CeptonSetSdkControlFlags");
   }
 
   // Point filter settings
