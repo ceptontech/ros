@@ -488,6 +488,14 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   RCLCPP_DEBUG(this->get_logger(),
                "=================================================");
 
+  if (include_flag_ & CEPTON_POINT_AMBIENT) {
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT);
+    check_sdk_error(ret, "CeptonSetSdkControlFlags");
+  } else {
+    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_TOF);
+    check_sdk_error(ret, "CeptonSetSdkControlFlags");
+  }
+
   // Point filter settings
   min_altitude_ = get_parameter("min_altitude").as_double();
   max_altitude_ = get_parameter("max_altitude").as_double();
