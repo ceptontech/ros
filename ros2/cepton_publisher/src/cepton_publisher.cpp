@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <iostream>
 #include <mutex>
@@ -92,6 +93,9 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle,
 void CeptonPublisher::publish_points(CeptonSensorHandle handle,
                                      int64_t start_timestamp, size_t n_points,
                                      const CeptonPointEx *points) {
+  static auto last_print_time = std::chrono::steady_clock::now();
+  static int frame_count = 0;
+  
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
@@ -100,20 +104,41 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   }
 
   // Store buffers for PointCloud2 point clouds (output)
-  static unordered_map<CeptonSensorHandle, PointCloud2> clouds;
+  // Use double buffering to avoid blocking on publish
+  static unordered_map<CeptonSensorHandle, array<PointCloud2, 2>> cloud_buffers;
+  static unordered_map<CeptonSensorHandle, int> buffer_index;
 
-  // Make sure the buffer is ready to be written (publish not in progress)
-  if (pub_fut_.valid()) pub_fut_.wait();
+  // No blocking wait - use alternate buffer instead
+  // This allows continuous processing at full rate
 
   // Write the cloud into our buffer for publishing.
   // This is okay to write here, because publish_points gets called from a
   // single SDK thread so we don't need to lock a buffer, we just need to make
   // sure that the cloud is not currently being published.
 
-  // Create a buffer for this sensor's points, if needed
-  if (clouds.find(handle) == clouds.end()) clouds[handle] = PointCloud2();
+  // Create buffers for this sensor's points, if needed
+  if (cloud_buffers.find(handle) == cloud_buffers.end()) {
+    cloud_buffers[handle][0] = PointCloud2{};
+    cloud_buffers[handle][1] = PointCloud2{};
+    buffer_index[handle] = 0;
+  }
 
-  auto &cloud = clouds[handle];
+  // Use current buffer
+  int current_buffer = buffer_index[handle];
+  auto &cloud = cloud_buffers[handle][current_buffer];
+  
+  // Switch to next buffer for next frame
+  buffer_index[handle] = 1 - current_buffer;
+  
+  // Performance monitoring
+  frame_count++;
+  auto now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print_time).count() >= 1) {
+    RCLCPP_INFO(this->get_logger(), "Internal frame rate: %.1f Hz, using buffer %d", 
+                frame_count / std::chrono::duration<double>(now - last_print_time).count(), current_buffer);
+    frame_count = 0;
+    last_print_time = now;
+  }
   cloud.header.stamp.sec = start_timestamp / 1'000'000;
   // nanosec is the timestamp portion that is truncated from the sec.
   // portion.
@@ -291,11 +316,10 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   cloud.width = kept;
   cloud.height = 1;
 
-  // Publish. Creating the publish future means we can no longer write buffers
-  // until the publish completes.
+  // Publish asynchronously without blocking next frame processing
   {
-    pub_fut_ = std::async(
-        std::launch::async, [this, start_timestamp, n_points, handle, cloud = std::move(cloud)]() {
+    [[maybe_unused]] auto fut = std::async(
+        std::launch::async, [this, handle, cloud]() {
           // Publish points
           points_publisher->publish(cloud);
 
