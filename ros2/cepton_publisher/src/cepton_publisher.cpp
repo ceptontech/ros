@@ -148,11 +148,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     frame_count = 0;
     last_print_time = now;
   }
-  cloud.header.stamp.sec = start_timestamp / 1'000'000;
-  // nanosec is the timestamp portion that is truncated from the sec.
-  // portion.
-  cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
+  
+  // Use ROS time for message timestamp to ensure accurate rate measurement
+  auto ros_now = this->get_clock()->now();
+  cloud.header.stamp = ros_now;
   cloud.header.frame_id = "cepton3";
+  
+  // Store sensor timestamp in a custom field if needed for downstream processing
+  // cloud.header.stamp.sec = start_timestamp / 1'000'000;
+  // cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
@@ -330,8 +334,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   {
     auto publish_start = std::chrono::steady_clock::now();
     
-    // Publish points
+    // Publish points - measure each publish call separately
+    auto pub1_start = std::chrono::steady_clock::now();
     points_publisher->publish(cloud);
+    auto pub1_end = std::chrono::steady_clock::now();
+    
+    auto pub1_duration = std::chrono::duration_cast<std::chrono::microseconds>(pub1_end - pub1_start);
+    if (pub1_duration.count() > 500) {
+      RCLCPP_WARN(this->get_logger(), "Main publish took %ld μs", pub1_duration.count());
+    }
 
     // Publish by handle - create publisher if needed
     if (use_handle_for_pcl2_) {
@@ -348,9 +359,12 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     auto publish_end = std::chrono::steady_clock::now();
     auto publish_duration = std::chrono::duration_cast<std::chrono::microseconds>(publish_end - publish_start);
     
-    if (publish_duration.count() > 1000) { // Log if publish takes > 1ms
-      RCLCPP_WARN(this->get_logger(), "Publish took %ld μs for %d points", 
-                  publish_duration.count(), kept);
+    // Log every publish timing to see the pattern
+    static int publish_count = 0;
+    publish_count++;
+    if (publish_count % 10 == 0) {
+      RCLCPP_INFO(this->get_logger(), "Publish #%d: total %ld μs, main publish %ld μs", 
+                  publish_count, publish_duration.count(), pub1_duration.count());
     }
   }
 }
@@ -369,7 +383,10 @@ void CeptonPublisher::ensure_pcl2_publisher(CeptonSensorHandle handle,
       rclcpp::QoS(rclcpp::KeepLast(1))
         .reliability(rclcpp::ReliabilityPolicy::BestEffort)
         .durability(rclcpp::DurabilityPolicy::Volatile)
+        .history(rclcpp::HistoryPolicy::KeepLast)
         .deadline(std::chrono::milliseconds(100))
+        .liveliness(rclcpp::LivelinessPolicy::Automatic)
+        .liveliness_lease_duration(std::chrono::milliseconds(200))
     );
   }
 }
@@ -437,7 +454,10 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
       rclcpp::QoS(rclcpp::KeepLast(1))
         .reliability(rclcpp::ReliabilityPolicy::BestEffort)
         .durability(rclcpp::DurabilityPolicy::Volatile)
+        .history(rclcpp::HistoryPolicy::KeepLast)
         .deadline(std::chrono::milliseconds(100))
+        .liveliness(rclcpp::LivelinessPolicy::Automatic)
+        .liveliness_lease_duration(std::chrono::milliseconds(200))
     );
 
     // Register callback
