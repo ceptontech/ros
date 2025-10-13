@@ -291,27 +291,25 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   cloud.width = kept;
   cloud.height = 1;
 
-  auto cloud_ptr = std::make_shared<PointCloud2>(cloud);
-
   // Publish. Creating the publish future means we can no longer write buffers
   // until the publish completes.
   {
     pub_fut_ = std::async(
-        std::launch::async, [this, start_timestamp, n_points, handle, cloud_ptr]() {
+        std::launch::async, [this, start_timestamp, n_points, handle, cloud = std::move(cloud)]() {
           // Publish points
-          points_publisher->publish(cloud_ptr);
+          points_publisher->publish(cloud);
 
           // Publish by handle - create publisher if needed
           if (use_handle_for_pcl2_) {
             ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
                                   handle_points_publisher);
-            handle_points_publisher[handle]->publish(cloud_ptr);
+            handle_points_publisher[handle]->publish(cloud);
           }
 
           // If info packet is received to link handle to serial number, publish
           // by serial number
           if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
-            serial_points_publisher[handle]->publish(cloud_ptr);
+            serial_points_publisher[handle]->publish(cloud);
         });
   }
 }
