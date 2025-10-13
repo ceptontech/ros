@@ -163,39 +163,36 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
   // Only set up fields once per sensor to avoid repeated expensive operations
-  if (!fields_initialized[handle]) {
-    int n_fields = 4;
+  int n_fields = 4;
 #ifdef WITH_TS_CH_F
-    n_fields += 4;
+  n_fields += 4;
 #endif
 #ifdef WITH_POLAR
-    n_fields += 3;
+  n_fields += 3;
 #endif
 
-    cloud_modifier.setPointCloud2Fields(
-        n_fields,
-        // clang-format off
-                "x", 1, PointField::FLOAT32,
-                "y", 1, PointField::FLOAT32,
-                "z", 1, PointField::FLOAT32,
-                "intensity", 1, PointField::FLOAT32
-                #ifdef WITH_TS_CH_F
-                ,
-                "timestamp_s", 1, PointField::INT32,
-                "timestamp_us", 1, PointField::INT32,
-                "flags", 1, PointField::UINT16,
-                "channel_id", 1, PointField::UINT16
-                #endif
-                #ifdef WITH_POLAR
-                ,
-                "azimuth", 1, PointField::FLOAT32,
-                "elevation", 1, PointField::FLOAT32,
-                "range", 1, PointField::FLOAT32
-                #endif
-        // clang-format on
-    );
-    fields_initialized[handle] = true;
-  }
+  cloud_modifier.setPointCloud2Fields(
+      n_fields,
+      // clang-format off
+              "x", 1, PointField::FLOAT32,
+              "y", 1, PointField::FLOAT32,
+              "z", 1, PointField::FLOAT32,
+              "intensity", 1, PointField::FLOAT32
+              #ifdef WITH_TS_CH_F
+              ,
+              "timestamp_s", 1, PointField::INT32,
+              "timestamp_us", 1, PointField::INT32,
+              "flags", 1, PointField::UINT16,
+              "channel_id", 1, PointField::UINT16
+              #endif
+              #ifdef WITH_POLAR
+              ,
+              "azimuth", 1, PointField::FLOAT32,
+              "elevation", 1, PointField::FLOAT32,
+              "range", 1, PointField::FLOAT32
+              #endif
+      // clang-format on
+  );
 
   // resizing should be done before the iters are declared, otw seg faults
   cloud_modifier.resize(n_points);
