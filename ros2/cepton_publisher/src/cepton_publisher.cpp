@@ -96,6 +96,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   static auto last_print_time = std::chrono::steady_clock::now();
   static int frame_count = 0;
   
+  // Early exit if no subscribers - save processing time
+  if (points_publisher && points_publisher->get_subscription_count() == 0 &&
+      (!use_handle_for_pcl2_ || handle_points_publisher.find(handle) == handle_points_publisher.end() ||
+       handle_points_publisher[handle]->get_subscription_count() == 0) &&
+      (!use_sn_for_pcl2_ || serial_points_publisher.find(handle) == serial_points_publisher.end() ||
+       serial_points_publisher[handle]->get_subscription_count() == 0)) {
+    return;
+  }
+  
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
@@ -189,7 +198,6 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   }
 
   // resizing should be done before the iters are declared, otw seg faults
-  // Preallocate for worst case to avoid multiple reallocations
   cloud_modifier.resize(n_points);
 
   // Populate the cloud fields
