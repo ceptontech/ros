@@ -297,7 +297,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   // until the publish completes.
   {
     pub_fut_ = std::async(
-        std::launch::async, [this, start_timestamp, n_points, handle, cloud]() {
+        std::launch::async, [this, start_timestamp, n_points, handle, cloud_ptr]() {
           // Publish points
           points_publisher->publish(cloud_ptr);
 
