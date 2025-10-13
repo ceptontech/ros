@@ -96,6 +96,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   static auto last_print_time = std::chrono::steady_clock::now();
   static int frame_count = 0;
   
+  // Early exit if no subscribers - save processing time
+  if (points_publisher && points_publisher->get_subscription_count() == 0 &&
+      (!use_handle_for_pcl2_ || handle_points_publisher.find(handle) == handle_points_publisher.end() ||
+       handle_points_publisher[handle]->get_subscription_count() == 0) &&
+      (!use_sn_for_pcl2_ || serial_points_publisher.find(handle) == serial_points_publisher.end() ||
+       serial_points_publisher[handle]->get_subscription_count() == 0)) {
+    return;
+  }
+  
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
@@ -316,25 +325,33 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   cloud.width = kept;
   cloud.height = 1;
 
-  // Publish asynchronously without blocking next frame processing
+  // Publish immediately - ROS 2 publish calls are already non-blocking
+  // No need for async wrapper that creates task overhead
   {
-    [[maybe_unused]] auto fut = std::async(
-        std::launch::async, [this, handle, cloud]() {
-          // Publish points
-          points_publisher->publish(cloud);
+    auto publish_start = std::chrono::steady_clock::now();
+    
+    // Publish points
+    points_publisher->publish(cloud);
 
-          // Publish by handle - create publisher if needed
-          if (use_handle_for_pcl2_) {
-            ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
-                                  handle_points_publisher);
-            handle_points_publisher[handle]->publish(cloud);
-          }
+    // Publish by handle - create publisher if needed
+    if (use_handle_for_pcl2_) {
+      ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
+                            handle_points_publisher);
+      handle_points_publisher[handle]->publish(cloud);
+    }
 
-          // If info packet is received to link handle to serial number, publish
-          // by serial number
-          if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
-            serial_points_publisher[handle]->publish(cloud);
-        });
+    // If info packet is received to link handle to serial number, publish
+    // by serial number
+    if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
+      serial_points_publisher[handle]->publish(cloud);
+      
+    auto publish_end = std::chrono::steady_clock::now();
+    auto publish_duration = std::chrono::duration_cast<std::chrono::microseconds>(publish_end - publish_start);
+    
+    if (publish_duration.count() > 1000) { // Log if publish takes > 1ms
+      RCLCPP_WARN(this->get_logger(), "Publish took %ld μs for %d points", 
+                  publish_duration.count(), kept);
+    }
   }
 }
 
@@ -348,7 +365,12 @@ void CeptonPublisher::ensure_pcl2_publisher(CeptonSensorHandle handle,
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu",
                 handle);
-    m[handle] = create_publisher<PointCloud2>(topic, rclcpp::SensorDataQoS());
+    m[handle] = create_publisher<PointCloud2>(topic, 
+      rclcpp::QoS(rclcpp::KeepLast(1))
+        .reliability(rclcpp::ReliabilityPolicy::BestEffort)
+        .durability(rclcpp::DurabilityPolicy::Volatile)
+        .deadline(std::chrono::milliseconds(100))
+    );
   }
 }
 
@@ -411,7 +433,12 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     use_sn_for_pcl2_ = pcl2_output_type == "SN" || pcl2_output_type == "BOTH";
     RCLCPP_DEBUG(this->get_logger(), "\tPublishing PCL2 points with SN: %s",
                  use_sn_for_pcl2_ ? "true" : "false");
-    points_publisher = create_publisher<PointCloud2>("cepton_pcl2", rclcpp::SensorDataQoS());
+    points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 
+      rclcpp::QoS(rclcpp::KeepLast(1))
+        .reliability(rclcpp::ReliabilityPolicy::BestEffort)
+        .durability(rclcpp::DurabilityPolicy::Volatile)
+        .deadline(std::chrono::milliseconds(100))
+    );
 
     // Register callback
     ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame,
