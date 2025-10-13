@@ -291,25 +291,27 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   cloud.width = kept;
   cloud.height = 1;
 
+  auto cloud_ptr = std::make_shared<PointCloud2>(cloud);
+
   // Publish. Creating the publish future means we can no longer write buffers
   // until the publish completes.
   {
     pub_fut_ = std::async(
         std::launch::async, [this, start_timestamp, n_points, handle, cloud]() {
           // Publish points
-          points_publisher->publish(cloud);
+          points_publisher->publish(cloud_ptr);
 
           // Publish by handle - create publisher if needed
           if (use_handle_for_pcl2_) {
             ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
                                   handle_points_publisher);
-            handle_points_publisher[handle]->publish(cloud);
+            handle_points_publisher[handle]->publish(cloud_ptr);
           }
 
           // If info packet is received to link handle to serial number, publish
           // by serial number
           if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
-            serial_points_publisher[handle]->publish(cloud);
+            serial_points_publisher[handle]->publish(cloud_ptr);
         });
   }
 }
@@ -387,7 +389,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     use_sn_for_pcl2_ = pcl2_output_type == "SN" || pcl2_output_type == "BOTH";
     RCLCPP_DEBUG(this->get_logger(), "\tPublishing PCL2 points with SN: %s",
                  use_sn_for_pcl2_ ? "true" : "false");
-    points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
+    points_publisher = create_publisher<PointCloud2>("cepton_pcl2", rclcpp::SensorDataQoS());
 
     // Register callback
     ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame,
