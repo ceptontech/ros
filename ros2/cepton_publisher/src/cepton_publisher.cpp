@@ -324,7 +324,7 @@ void CeptonPublisher::ensure_pcl2_publisher(CeptonSensorHandle handle,
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu",
                 handle);
-    m[handle] = create_publisher<PointCloud2>(topic, 50);
+    m[handle] = create_publisher<PointCloud2>(topic, rclcpp::SensorDataQoS());
   }
 }
 
