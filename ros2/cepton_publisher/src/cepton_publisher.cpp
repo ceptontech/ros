@@ -96,15 +96,6 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   static auto last_print_time = std::chrono::steady_clock::now();
   static int frame_count = 0;
   
-  // Early exit if no subscribers - save processing time
-  if (points_publisher && points_publisher->get_subscription_count() == 0 &&
-      (!use_handle_for_pcl2_ || handle_points_publisher.find(handle) == handle_points_publisher.end() ||
-       handle_points_publisher[handle]->get_subscription_count() == 0) &&
-      (!use_sn_for_pcl2_ || serial_points_publisher.find(handle) == serial_points_publisher.end() ||
-       serial_points_publisher[handle]->get_subscription_count() == 0)) {
-    return;
-  }
-  
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
@@ -116,6 +107,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   // Use double buffering to avoid blocking on publish
   static unordered_map<CeptonSensorHandle, array<PointCloud2, 2>> cloud_buffers;
   static unordered_map<CeptonSensorHandle, int> buffer_index;
+  static unordered_map<CeptonSensorHandle, bool> fields_initialized;
 
   // No blocking wait - use alternate buffer instead
   // This allows continuous processing at full rate
@@ -130,6 +122,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     cloud_buffers[handle][0] = PointCloud2{};
     cloud_buffers[handle][1] = PointCloud2{};
     buffer_index[handle] = 0;
+    fields_initialized[handle] = false;
   }
 
   // Use current buffer
@@ -160,38 +153,43 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
-  int n_fields = 4;
+  // Only set up fields once per sensor to avoid repeated expensive operations
+  if (!fields_initialized[handle]) {
+    int n_fields = 4;
 #ifdef WITH_TS_CH_F
-  n_fields += 4;
+    n_fields += 4;
 #endif
 #ifdef WITH_POLAR
-  n_fields += 3;
+    n_fields += 3;
 #endif
 
-  cloud_modifier.setPointCloud2Fields(
-      n_fields,
-      // clang-format off
-              "x", 1, PointField::FLOAT32,
-              "y", 1, PointField::FLOAT32,
-              "z", 1, PointField::FLOAT32,
-              "intensity", 1, PointField::FLOAT32
-              #ifdef WITH_TS_CH_F
-              ,
-              "timestamp_s", 1, PointField::INT32,
-              "timestamp_us", 1, PointField::INT32,
-              "flags", 1, PointField::UINT16,
-              "channel_id", 1, PointField::UINT16
-              #endif
-              #ifdef WITH_POLAR
-              ,
-              "azimuth", 1, PointField::FLOAT32,
-              "elevation", 1, PointField::FLOAT32,
-              "range", 1, PointField::FLOAT32
-              #endif
-      // clang-format on
-  );
+    cloud_modifier.setPointCloud2Fields(
+        n_fields,
+        // clang-format off
+                "x", 1, PointField::FLOAT32,
+                "y", 1, PointField::FLOAT32,
+                "z", 1, PointField::FLOAT32,
+                "intensity", 1, PointField::FLOAT32
+                #ifdef WITH_TS_CH_F
+                ,
+                "timestamp_s", 1, PointField::INT32,
+                "timestamp_us", 1, PointField::INT32,
+                "flags", 1, PointField::UINT16,
+                "channel_id", 1, PointField::UINT16
+                #endif
+                #ifdef WITH_POLAR
+                ,
+                "azimuth", 1, PointField::FLOAT32,
+                "elevation", 1, PointField::FLOAT32,
+                "range", 1, PointField::FLOAT32
+                #endif
+        // clang-format on
+    );
+    fields_initialized[handle] = true;
+  }
 
   // resizing should be done before the iters are declared, otw seg faults
+  // Preallocate for worst case to avoid multiple reallocations
   cloud_modifier.resize(n_points);
 
   // Populate the cloud fields
@@ -239,43 +237,42 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     float y = p0.y * SDK_UNIT_TO_METERS;
     float z = p0.z * SDK_UNIT_TO_METERS;
 
-    // Convert cepton coordinates to ROS coordinates
-    {
-      auto tx = y;
-      auto ty = -x;
-      auto tz = z;
-      x = tx;
-      y = ty;
-      z = tz;
-    }
+    // Convert cepton coordinates to ROS coordinates (swap and negate in one step)
+    float ros_x = y;
+    float ros_y = -x;
+    float ros_z = z;
 
-    const float distance_squared = x * x + y * y + z * z;
+    const float distance_squared = ros_x * ros_x + ros_y * ros_y + ros_z * ros_z;
 
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) continue;
+    if (distance_squared >= 250000.0f) continue; // 500*500 precomputed
 
-    const float image_x = y / x;  // horizontal tangent
-    const float image_z = z / x;  // vertical tangent
-
-    // Filter if the point is outside of the FOV
-    if (image_x < min_image_x_ || image_x > max_image_x_ ||
-        image_z < min_image_z_ || image_z > max_image_z_ ||
-        distance_squared < min_distance_squared ||
+    // Early distance check before expensive division
+    if (distance_squared < min_distance_squared ||
         distance_squared > max_distance_squared)
       continue;
 
+    const float inv_x = 1.0f / ros_x;  // Compute reciprocal once
+    const float image_x = ros_y * inv_x;  // horizontal tangent
+    const float image_z = ros_z * inv_x;  // vertical tangent
+
+    // Filter if the point is outside of the FOV
+    if (image_x < min_image_x_ || image_x > max_image_x_ ||
+        image_z < min_image_z_ || image_z > max_image_z_)
+      continue;
+
     // x value
-    *x_iter = x;
+    *x_iter = ros_x;
     ++x_iter;
 
     // y value
-    *y_iter = y;
+    *y_iter = ros_y;
     ++y_iter;
 
     // z value
-    *z_iter = z;
+    *z_iter = ros_z;
     ++z_iter;
 
     // intensity
@@ -306,7 +303,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
 
     // If this point is a no-return, set the distance to 0
     bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
-    float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
+    float range_meas = is_valid_return ? sqrt(distance_squared) : 0.0f; // Reuse precomputed distance_squared
 
     // azimuth
     *azim_iter = azimuth_rad;
