@@ -525,6 +525,9 @@ CEPTON_EXPORT int CeptonUnregisterParser(CeptonParserCallback callback,
 
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT 0x0
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_TOF 0x1
+#define CEPTON_SDK_CONTROL_FLAG_RETURN_FIRST (0x1 << 1)
+#define CEPTON_SDK_CONTROL_FLAG_RETURN_SECOND (0x2 << 1)
+#define CEPTON_SDK_CONTROL_FLAG_RETURN_BOTH (0x3 << 1)
 CEPTON_EXPORT int CeptonSetSdkControlFlags(uint32_t flags);
 
 //------------------------------------------------------------------------------
