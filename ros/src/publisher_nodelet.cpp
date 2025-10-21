@@ -147,13 +147,22 @@ void PublisherNodelet::onInit() {
   ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_api_error(ret, "CeptonInitialize");
 
+  uint32_t control_flags = 0;
+
   if (include_flag_ & CEPTON_POINT_AMBIENT) {
-    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT);
-    check_api_error(ret, "CeptonSetSdkControlFlags");
+    control_flags |= CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT;
   } else {
-    ret = CeptonSetSdkControlFlags(CEPTON_SDK_CONTROL_FLAG_PARSE_TOF);
-    check_api_error(ret, "CeptonSetSdkControlFlags");
+    control_flags |= CEPTON_SDK_CONTROL_FLAG_PARSE_TOF;
   }
+
+  if (include_flag_ & CEPTON_POINT_SECOND_RETURN) {
+    control_flags |= CEPTON_SDK_CONTROL_FLAG_RETURN_BOTH;
+  } else {
+    control_flags |= CEPTON_SDK_CONTROL_FLAG_RETURN_FIRST;
+  }
+
+  ret = CeptonSetSdkControlFlags(control_flags);
+  check_api_error(ret, "CeptonSetSdkControlFlags");
 
   // Start SDK CaptureReplay or Networking
   if (!capture_path.empty()) {
