@@ -367,6 +367,9 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   check_sdk_error(ret, "CeptonInitialize");
 
   RCLCPP_DEBUG(this->get_logger(),
+               "Version: %s", VERSION.c_str());
+
+  RCLCPP_DEBUG(this->get_logger(),
                "========= Point Cloud Output Parameters =========");
 
   // Check whether to output pcl2 points

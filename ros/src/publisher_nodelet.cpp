@@ -99,6 +99,7 @@ void PublisherNodelet::onInit() {
 
   // Check for which points should be included based on params for flag bits
   {
+    ROS_INFO("version: %s", VERSION.c_str());
     bool include = true;
 
     ROS_INFO("============= Point Flag Parameters =============\n");

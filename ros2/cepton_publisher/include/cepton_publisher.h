@@ -19,6 +19,9 @@
 
 namespace cepton_ros {
 
+using String = std::string;
+String VERSION = "v2.0.2";
+
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
 /**

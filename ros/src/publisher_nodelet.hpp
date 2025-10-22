@@ -26,6 +26,10 @@ enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
 namespace cepton_ros {
 
+// Add a String alias and a namespace-level VERSION so .cpp files can use VERSION
+using String = std::string;
+const String VERSION = "v2.0.2";
+
 /**
  * Cepton SDK nodelet. Publishes sensor point topics.
  **/
@@ -50,6 +54,7 @@ class PublisherNodelet : public nodelet::Nodelet {
   void onInit() override;
 
  private:
+
   /** ROS node handle for public fields */
   ros::NodeHandle node_handle_;
 
