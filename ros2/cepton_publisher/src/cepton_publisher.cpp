@@ -366,6 +366,9 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_sdk_error(ret, "CeptonInitialize");
 
+  RCLCPP_INFO(this->get_logger(),
+               "\n\n========== Version: %s ==========\n ", VERSION.c_str());
+
   RCLCPP_DEBUG(this->get_logger(),
                "========= Point Cloud Output Parameters =========");
 
