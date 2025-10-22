@@ -26,7 +26,7 @@ enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
 namespace cepton_ros {
 
-// Add a String alias and a namespace-level VERSION so .cpp files can use VERSION
+// update this when making changes, will display in terminal running publisher
 using String = std::string;
 const String VERSION = "v2.0.2";
 

@@ -55,7 +55,8 @@ void PublisherNodelet::check_api_error(int err, char const *api) {
 const auto SENSOR_POINTS_TIMEOUT = std::chrono::seconds(3);
 
 void PublisherNodelet::onInit() {
-  ROS_INFO("PublisherNodeletStarted");
+  ROS_INFO("\n\n========== Version: %s ==========\n ", VERSION.c_str());
+  ROS_INFO("Publisher Nodelet Started");
 
   int ret;
   node_handle_ = getNodeHandle();
@@ -99,7 +100,6 @@ void PublisherNodelet::onInit() {
 
   // Check for which points should be included based on params for flag bits
   {
-    ROS_INFO("version: %s", VERSION.c_str());
     bool include = true;
 
     ROS_INFO("============= Point Flag Parameters =============\n");

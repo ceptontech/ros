@@ -19,6 +19,7 @@
 
 namespace cepton_ros {
 
+// update this when making changes, will display in terminal running publisher
 using String = std::string;
 String VERSION = "v2.0.2";
 
