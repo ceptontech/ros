@@ -34,7 +34,7 @@ find_package(rclcpp_components REQUIRED)
 ###################################################################
 # Link the SDK, first get the binaries for the correct architecture
 
-set(SDK_VERSION 3.0.19.27)
+set(SDK_VERSION 3.0.20.2)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
   set(SDK_SOURCE  ${PROJECT_SOURCE_DIR}/../../cepton-sdk-${SDK_VERSION}/lib/linux-x64)
