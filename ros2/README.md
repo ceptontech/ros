@@ -16,10 +16,14 @@ This guide covers all configuration options available for the Cepton ROS Publish
 - **Usage**: Only applies when `capture_file` is specified
 - **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
 
-#### `sensor_port` (int, default: 8808)
-- **Description**: UDP port for receiving live sensor data
-- **Usage**: Only applies when not using capture file replay
-- **Note**: Standard Cepton sensor communication port
+#### `sensor_ports` (vector<int>, default: [8808])
+- **Description**: List of UDP ports for receiving live sensor data
+- **Usage**: Only applies when not using capture file replay. Can specify multiple ports to listen on simultaneously.
+- **Note**: Standard Cepton sensor communication port is 8808
+- **Example**:
+```yaml
+sensor_ports: [8808, 8809, 8810]
+```
 
 ### Point Cloud Output Configuration
 
@@ -143,6 +147,14 @@ colcon build --packages-select cepton_messages cepton_subscriber cepton_publishe
 
 # Build with filtered fields
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
+```
+
+### Run Commands
+```bash
+source /opt/ros/<ros-version/setup.bash
+source install/setup.bash
+
+ros2 run cepton_publisher cepton_publisher_node --ros-args --params-file /path/to/parameters.yaml 
 ```
 
 ## Monitoring and Status

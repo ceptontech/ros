@@ -8,7 +8,7 @@
   ros__parameters:
     capture_file: ""
     capture_loop: true
-    sensor_port: 8808
+    sensor_ports: [8808]
     cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true

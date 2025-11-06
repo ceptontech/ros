@@ -1,6 +1,7 @@
 # YAML configuration file for loading default parameters into PubsliherNodelet
 capture_path: ""
 capture_loop: true
+sensor_ports: []  # Empty list means use default port 8808. Can specify multiple ports like [8808, 8809]
 include_saturated_points: true
 include_second_return_points: true
 include_invalid_points: false

@@ -95,6 +95,10 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("output_by_handle", output_by_handle_,
                              output_by_handle_);
   private_node_handle_.param("output_by_sn", output_by_sn_, output_by_sn_);
+  
+  std::vector<int> sensor_ports;
+  private_node_handle_.param("sensor_ports", sensor_ports, sensor_ports);
+  
   private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_,
                              expected_sensor_ips_);
 
@@ -171,8 +175,20 @@ void PublisherNodelet::onInit() {
                                &replay_handle_);
     check_api_error(ret, "CeptonReplayLoadPcap");
   } else {
-    ret = CeptonStartNetworking();
-    check_api_error(ret, "CeptonStartNetworking");
+    // Start listening for UDP data on the specified ports
+    if (sensor_ports.empty()) {
+      // If no ports specified, use the default networking (port 8808)
+      ROS_INFO("Start networking on default port");
+      ret = CeptonStartNetworking();
+      check_api_error(ret, "CeptonStartNetworking");
+    } else {
+      // Start networking on each specified port
+      for (const auto& port : sensor_ports) {
+        ROS_INFO("Start networking on port %d", port);
+        ret = CeptonStartNetworkingOnPort(port);
+        check_api_error(ret, "CeptonStartNetworkingOnPort");
+      }
+    }
   }
 
   // Listen for frames

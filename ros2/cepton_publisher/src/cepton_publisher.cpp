@@ -341,7 +341,7 @@ void CeptonPublisher::ensure_info_publisher(CeptonSensorHandle handle,
 CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("capture_file", "");
   declare_parameter("capture_loop", false);
-  declare_parameter("sensor_port", 8808);
+  declare_parameter("sensor_ports", std::vector<int64_t>{8808});
 
   // Describe how to output point clouds (per-sensor topics).
   // Can be per-handle, per-serialnum, or both
@@ -543,14 +543,20 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
                                &replay_handle);
     check_sdk_error(ret, "CeptonReplayLoadPcap");
   } else {
-    // Start listening for UDP data on the specified port. Default port is
+    // Start listening for UDP data on the specified ports. Default port is
     // 8808
-    rclcpp::Parameter port = get_parameter("sensor_port");
-    int p = 8808;
-    if (port.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET)
-      p = port.as_int();
-    RCLCPP_DEBUG(this->get_logger(), "Start networking on %d", p);
-    CeptonStartNetworkingOnPort(p);
+    rclcpp::Parameter ports_param = get_parameter("sensor_ports");
+    std::vector<int64_t> ports = {8808};  // Default to port 8808
+    if (ports_param.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
+      ports = ports_param.as_integer_array();
+    }
+    
+    // Start networking on each port
+    for (const auto& port : ports) {
+      RCLCPP_INFO(this->get_logger(), "Start networking on port %ld", port);
+      ret = CeptonStartNetworkingOnPort(static_cast<int>(port));
+      check_sdk_error(ret, "CeptonStartNetworkingOnPort");
+    }
   }
 
   // Init the expected sensors

@@ -16,6 +16,15 @@ This guide covers all configuration options available for the Cepton ROS Publish
 - **Usage**: Only applies when `capture_path` is specified
 - **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
 
+#### `sensor_ports` (vector<int>, default: empty)
+- **Description**: List of UDP ports for receiving live sensor data
+- **Usage**: Only applies when not using capture file replay. Empty list uses default port 8808. Can specify multiple ports to listen on simultaneously.
+- **Note**: Standard Cepton sensor communication port is 8808
+- **Example**:
+```yaml
+sensor_ports: [8808, 8809, 8810]
+```
+
 ### Output Configuration
 
 #### `output_by_handle` (bool, default: varies)
