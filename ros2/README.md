@@ -18,7 +18,7 @@ This guide covers all configuration options available for the Cepton ROS Publish
 
 #### `sensor_network_sources` (vector<string>, default: ["0.0.0.0:8808"])
 - **Description**: List of network sources for receiving live sensor data
-- **Usage**: Only applies when not using capture file replay. Each source is specified as "ip:port" or "ip:port:multicast_group"
+- **Usage**: Only applies when not using capture file replay. Each source is specified as "ip:port" or "ip:port:multicast_group". The IP specified here is not the IP of the sensor, this is the IP of the machine's interface.
 - **Format**: 
   - `"ip:port"` - Unicast on specific interface or all interfaces (0.0.0.0)
   - `"ip:port:multicast_group"` - Multicast configuration

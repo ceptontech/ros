@@ -32,7 +32,7 @@ sensor_network_sources: ["0.0.0.0:8808"]
 sensor_network_sources: ["0.0.0.0:8808", "0.0.0.0:8809"]
 
 # Specific interface
-sensor_network_sources: ["192.168.32.32:8808"]
+sensor_network_sources: ["192.168.1.100:8808"]
 
 # With multicast
 sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
