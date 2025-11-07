@@ -48,6 +48,17 @@ class CeptonPublisher : public rclcpp::Node {
  private:
   CeptonReplayHandle replay_handle = 0;
 
+  /** 
+   * Store network source information (ip, port, multicast_group) for cleanup
+   * on shutdown
+   */
+  struct NetworkSource {
+    std::string ip;
+    uint16_t port;
+    std::string multicast_group;
+  };
+  std::vector<NetworkSource> networking_sources_;
+
   /**
    * @brief Responsible for publishing the points received from the SDK
    * callback functions. Publish points in format msg::PointCloud2

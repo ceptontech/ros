@@ -30,6 +30,51 @@ const float SDK_UNIT_TO_METERS = 1.0 / 65536.0;
 inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
 /**
+ * Parse a network source string in the format "ip:port" or "ip:port:multicast"
+ * @param source_str The source string to parse
+ * @param ip Output parameter for IP address (empty string for nullptr/0.0.0.0)
+ * @param port Output parameter for port number
+ * @param multicast_group Output parameter for multicast group (empty string for
+ * nullptr)
+ * @return true if parsing succeeded, false otherwise
+ */
+bool parse_network_source(const string &source_str, string &ip, uint16_t &port,
+                          string &multicast_group) {
+  // Split by ':' delimiter
+  size_t first_colon = source_str.find(':');
+  if (first_colon == string::npos) {
+    return false;
+  }
+
+  ip = source_str.substr(0, first_colon);
+  size_t second_colon = source_str.find(':', first_colon + 1);
+
+  string port_str;
+  if (second_colon != string::npos) {
+    // Format: ip:port:multicast
+    port_str = source_str.substr(first_colon + 1, second_colon - first_colon - 1);
+    multicast_group = source_str.substr(second_colon + 1);
+  } else {
+    // Format: ip:port
+    port_str = source_str.substr(first_colon + 1);
+    multicast_group = "";
+  }
+
+  // Parse port
+  try {
+    int port_int = stoi(port_str);
+    if (port_int < 0 || port_int > 65535) {
+      return false;
+    }
+    port = static_cast<uint16_t>(port_int);
+  } catch (...) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * SDK callback for point data
  */
 void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
@@ -341,7 +386,7 @@ void CeptonPublisher::ensure_info_publisher(CeptonSensorHandle handle,
 CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("capture_file", "");
   declare_parameter("capture_loop", false);
-  declare_parameter("sensor_ports", std::vector<int64_t>{8808});
+  declare_parameter("sensor_network_sources", std::vector<std::string>{"0.0.0.0:8808"});
 
   // Describe how to output point clouds (per-sensor topics).
   // Can be per-handle, per-serialnum, or both
@@ -360,7 +405,6 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("max_azimuth", 90.);
   declare_parameter("max_distance", numeric_limits<float>::max());
   declare_parameter("min_distance", 0.0);
-  declare_parameter("expected_sensor_ips", vector<string>{});
 
   // Initialize sdk
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
@@ -543,41 +587,43 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
                                &replay_handle);
     check_sdk_error(ret, "CeptonReplayLoadPcap");
   } else {
-    // Start listening for UDP data on the specified ports. Default port is
-    // 8808
-    rclcpp::Parameter ports_param = get_parameter("sensor_ports");
-    std::vector<int64_t> ports = {8808};  // Default to port 8808
-    if (ports_param.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
-      ports = ports_param.as_integer_array();
+    // Add networking sources for UDP data from specified network sources.
+    // Format is "ip:port" or "ip:port:multicast_group"
+    rclcpp::Parameter sources_param = get_parameter("sensor_network_sources");
+    std::vector<std::string> sources = {"0.0.0.0:8808"};  // Default source
+    if (sources_param.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
+      sources = sources_param.as_string_array();
     }
-    
-    // Start networking on each port
-    for (const auto& port : ports) {
-      RCLCPP_INFO(this->get_logger(), "Start networking on port %ld", port);
-      ret = CeptonStartNetworkingOnPort(static_cast<int>(port));
-      check_sdk_error(ret, "CeptonStartNetworkingOnPort");
+
+    // Add a networking source for each configured source string
+    for (const auto &source_str : sources) {
+      std::string ip;
+      uint16_t port;
+      std::string multicast_group;
+
+      if (!parse_network_source(source_str, ip, port, multicast_group)) {
+        RCLCPP_ERROR(this->get_logger(),
+                     "Failed to parse network source: %s", source_str.c_str());
+        continue;
+      }
+
+      // Convert empty IP string or "0.0.0.0" to nullptr for SDK
+      const char *ip_ptr = (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
+      const char *multicast_ptr = multicast_group.empty() ? nullptr : multicast_group.c_str();
+
+      RCLCPP_INFO(this->get_logger(),
+                  "Add networking source: ip=%s, port=%d, multicast=%s",
+                  ip_ptr ? ip_ptr : "0.0.0.0", port,
+                  multicast_ptr ? multicast_ptr : "none");
+
+      ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
+      check_sdk_error(ret, "CeptonAddNetworkingSource");
+
+      // Store for cleanup
+      networking_sources_.push_back({ip, port, multicast_group});
     }
   }
 
-  // Init the expected sensors
-  auto p_expected_sensor_ips = get_parameter("expected_sensor_ips");
-
-  // If expected IPs are set, then for each handle, set the last points time
-  // to be the current time. The sensor will then time out if we don't get
-  // points within the limit. By default, sensors would be discovered lazily.
-  // This lets us raise an error message if an expected sensor was not connected
-  // properly to the PC.
-  if (p_expected_sensor_ips.get_type() !=
-      rclcpp::ParameterType::PARAMETER_NOT_SET) {
-    RCLCPP_DEBUG(this->get_logger(), "Set expected sensor IPs");
-    auto expected_sensor_ips = p_expected_sensor_ips.as_string_array();
-    for (auto const &expected_ip : expected_sensor_ips) {
-      struct in_addr addr;
-      inet_aton(expected_ip.c_str(), &addr);
-      // handle is in big-endian. inet_aton returns little endian
-      last_points_time_[__bswap_32(addr.s_addr)] = chrono::system_clock::now();
-    }
-  }
   RCLCPP_DEBUG(this->get_logger(), "Finished constructing");
 }
 
@@ -585,6 +631,16 @@ CeptonPublisher::~CeptonPublisher() {
   // Stop the status thread and wait for it to join
   stopping_ = true;
   if (sensor_status_thread.joinable()) sensor_status_thread.join();
+
+  // Remove all networking sources
+  for (const auto &source : networking_sources_) {
+    const char *ip_ptr =
+        (source.ip.empty() || source.ip == "0.0.0.0") ? nullptr : source.ip.c_str();
+    const char *multicast_ptr =
+        source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
+    int ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
+    check_sdk_error(ret, "CeptonRemoveNetworkingSource");
+  }
 
   // Tear down the sdk
   CeptonDeinitialize();

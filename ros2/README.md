@@ -16,13 +16,26 @@ This guide covers all configuration options available for the Cepton ROS Publish
 - **Usage**: Only applies when `capture_file` is specified
 - **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
 
-#### `sensor_ports` (vector<int>, default: [8808])
-- **Description**: List of UDP ports for receiving live sensor data
-- **Usage**: Only applies when not using capture file replay. Can specify multiple ports to listen on simultaneously.
+#### `sensor_network_sources` (vector<string>, default: ["0.0.0.0:8808"])
+- **Description**: List of network sources for receiving live sensor data
+- **Usage**: Only applies when not using capture file replay. Each source is specified as "ip:port" or "ip:port:multicast_group"
+- **Format**: 
+  - `"ip:port"` - Unicast on specific interface or all interfaces (0.0.0.0)
+  - `"ip:port:multicast_group"` - Multicast configuration
 - **Note**: Standard Cepton sensor communication port is 8808
 - **Example**:
 ```yaml
-sensor_ports: [8808, 8809, 8810]
+# Listen on all interfaces, port 8808
+sensor_network_sources: ["0.0.0.0:8808"]
+
+# Multiple ports on all interfaces
+sensor_network_sources: ["0.0.0.0:8808", "0.0.0.0:8809"]
+
+# Specific interface
+sensor_network_sources: ["192.168.32.32:8808"]
+
+# With multicast
+sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 ```
 
 ### Point Cloud Output Configuration
@@ -71,18 +84,6 @@ sensor_ports: [8808, 8809, 8810]
 - **Description**: Maximum distance threshold in meters
 - **Usage**: Points farther than this distance will be filtered out
 - **Note**: Points beyond 500m are automatically filtered as invalid
-
-### Network Configuration
-
-#### `expected_sensor_ips` (vector<string>, default: empty)
-- **Description**: List of expected sensor IP addresses for monitoring
-- **Usage**: Enables proactive timeout detection for expected sensors
-- **Example**:
-```yaml
-expected_sensor_ips:
-  - "192.168.1.10"
-  - "192.168.1.11"
-```
 
 ## Published Topics
 

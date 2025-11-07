@@ -8,7 +8,7 @@
   ros__parameters:
     capture_file: ""
     capture_loop: true
-    sensor_ports: [8808]
+    sensor_network_sources: ["0.0.0.0:8808"]
     cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true
@@ -22,9 +22,3 @@
     max_azimuth: 90.0
     max_distance: 1000.0
     min_distance: 0.0
-
-
-    # If uncommented, this parameter must not be an empty list.
-    # rclcpp cannot load empty lists properly, and this will throw an exception. https://github.com/ros2/rclcpp/issues/1955
-    # Commenting this out means that sensors will be discovered lazily, as they come online.
-    expected_sensor_ips: ["192.168.32.32"]

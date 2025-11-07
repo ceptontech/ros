@@ -100,6 +100,17 @@ class PublisherNodelet : public nodelet::Nodelet {
                            CEPTON_POINT_FRAME_BOUNDARY;
   CeptonReplayHandle replay_handle_{0};
 
+  /**
+   * Store network source information (ip, port, multicast_group) for cleanup
+   * on shutdown
+   */
+  struct NetworkSource {
+    std::string ip;
+    uint16_t port;
+    std::string multicast_group;
+  };
+  std::vector<NetworkSource> networking_sources_;
+
   /** If set to true, the nodelet will advertise topics by sensor handle */
   bool output_by_handle_{true};
 
@@ -122,9 +133,6 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   double min_distance_{0.0};
   double max_distance_{std::numeric_limits<float>::max()};
-
-  /** Optional set of expected IPs. Useful for detecting time-out */
-  std::vector<std::string> expected_sensor_ips_;
 
   /** Future for the publish process */
   std::future<void> pub_fut_;
