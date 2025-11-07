@@ -85,6 +85,18 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 - **Usage**: Points farther than this distance will be filtered out
 - **Note**: Points beyond 500m are automatically filtered as invalid
 
+### Network Configuration
+
+#### `expected_sensor_ips` (vector<string>, default: empty)
+- **Description**: List of expected sensor IP addresses for monitoring
+- **Usage**: Enables proactive timeout detection for expected sensors
+- **Example**:
+```yaml
+expected_sensor_ips:
+  - "192.168.1.10"
+  - "192.168.1.11"
+```
+
 ## Published Topics
 
 ### Standard Topics

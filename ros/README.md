@@ -50,6 +50,18 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 - **Topics Created**: `cepton3/points_sn_<SERIAL_NUMBER>`
 - **Usage**: Useful when working with multiple sensors and need separate topics per serial number
 
+### Network Configuration
+
+#### `expected_sensor_ips` (vector<string>, default: empty)
+- **Description**: List of expected sensor IP addresses for monitoring
+- **Usage**: Helps with sensor status monitoring and timeout detection
+- **Example**:
+```yaml
+expected_sensor_ips:
+  - "192.168.1.10"
+  - "192.168.1.11"
+```
+
 ## Point Filtering Options
 
  

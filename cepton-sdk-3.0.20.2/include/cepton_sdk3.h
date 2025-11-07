@@ -336,6 +336,36 @@ CEPTON_EXPORT int CeptonStartNetworkingMulticast(const char *targetMcastGroup,
  */
 CEPTON_EXPORT int CeptonStopNetworking(void);
 
+/**
+ * Add a networking source for multi-sensor support.
+ * Allows multiple sensors to be connected simultaneously by calling this
+ * function multiple times with different IP addresses and/or ports.
+ * Supports both unicast and multicast configurations.
+ * @param ip Host IP of the interface to bind to. Use nullptr or "0.0.0.0" for
+ * unspecified (listen on all interfaces).
+ * @param port UDP port to connect to lidar. Use 8808 if lidar has the factory
+ * default port.
+ * @param multicast_group Multicast group address to join. Use nullptr for
+ * unicast operation.
+ * @return CEPTON_SUCCESS on success, error code otherwise.
+ */
+CEPTON_EXPORT int CeptonAddNetworkingSource(const char *ip, uint16_t port,
+                                            const char *multicast_group);
+
+/**
+ * Remove a networking source.
+ * Removes a previously added networking source matching the specified IP,
+ * port, and multicast group.
+ * @param ip Host IP of the interface. Use nullptr or "0.0.0.0" for unspecified
+ * (matches sources listening on all interfaces).
+ * @param port UDP port of the source to remove.
+ * @param multicast_group Multicast group address. Use nullptr for unicast
+ * sources.
+ * @return CEPTON_SUCCESS on success, error code otherwise.
+ */
+CEPTON_EXPORT int CeptonRemoveNetworkingSource(const char *ip, uint16_t port,
+                                               const char *multicast_group);
+
 //------------------------------------------------------------------------------
 // Replay
 //------------------------------------------------------------------------------

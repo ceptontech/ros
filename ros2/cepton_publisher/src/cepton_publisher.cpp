@@ -405,6 +405,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("max_azimuth", 90.);
   declare_parameter("max_distance", numeric_limits<float>::max());
   declare_parameter("min_distance", 0.0);
+  declare_parameter("expected_sensor_ips", vector<string>{});
 
   // Initialize sdk
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
@@ -624,6 +625,25 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     }
   }
 
+  // Init the expected sensors
+  auto p_expected_sensor_ips = get_parameter("expected_sensor_ips");
+
+  // If expected IPs are set, then for each handle, set the last points time
+  // to be the current time. The sensor will then time out if we don't get
+  // points within the limit. By default, sensors would be discovered lazily.
+  // This lets us raise an error message if an expected sensor was not connected
+  // properly to the PC.
+  if (p_expected_sensor_ips.get_type() !=
+      rclcpp::ParameterType::PARAMETER_NOT_SET) {
+    RCLCPP_DEBUG(this->get_logger(), "Set expected sensor IPs");
+    auto expected_sensor_ips = p_expected_sensor_ips.as_string_array();
+    for (auto const &expected_ip : expected_sensor_ips) {
+      struct in_addr addr;
+      inet_aton(expected_ip.c_str(), &addr);
+      // handle is in big-endian. inet_aton returns little endian
+      last_points_time_[__bswap_32(addr.s_addr)] = chrono::system_clock::now();
+    }
+  }
   RCLCPP_DEBUG(this->get_logger(), "Finished constructing");
 }
 

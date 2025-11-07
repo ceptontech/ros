@@ -134,6 +134,9 @@ class PublisherNodelet : public nodelet::Nodelet {
   double min_distance_{0.0};
   double max_distance_{std::numeric_limits<float>::max()};
 
+  /** Optional set of expected IPs. Useful for detecting time-out */
+  std::vector<std::string> expected_sensor_ips_;
+
   /** Future for the publish process */
   std::future<void> pub_fut_;
 

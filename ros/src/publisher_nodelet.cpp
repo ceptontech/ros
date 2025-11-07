@@ -158,6 +158,9 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("sensor_network_sources", sensor_network_sources,
                              sensor_network_sources);
 
+  private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_,
+                             expected_sensor_ips_);
+
   // Check for which points should be included based on params for flag bits
   {
     bool include = true;
@@ -338,6 +341,16 @@ void PublisherNodelet::onInit() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
     });
+  }
+
+  // Set up the expected IPs (convert IP strings to u32)
+  for (auto const &expected_ip : expected_sensor_ips_) {
+    ROS_INFO("Adding expected IP %s", expected_ip.c_str());
+    struct in_addr addr;
+    inet_aton(expected_ip.c_str(), &addr);
+    // handle is in big-endian. inet_aton returns little endian
+    last_points_time_[__bswap_32(addr.s_addr)] =
+        std::chrono::system_clock::now();
   }
 }
 

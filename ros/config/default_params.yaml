@@ -16,3 +16,7 @@ min_azimuth: -90.
 max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
+
+# In ROS, unlike in ROS2, this needs to be set to an empty 
+# list if not using the expected lidars feature.
+expected_sensor_ips: []
