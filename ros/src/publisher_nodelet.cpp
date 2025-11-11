@@ -267,8 +267,9 @@ void PublisherNodelet::onInit() {
                  multicast_ptr ? multicast_ptr : "none");
 
         ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
-        check_api_error(ret, "CeptonAddNetworkingSource");
-
+        if (ret != CEPTON_SUCCESS) {
+          NODELET_ERROR("Source not added successfully, check that sensor is configured properly and running: %s", source_str.c_str());
+        }
         // Store for cleanup
         networking_sources_.push_back({ip, port, multicast_group});
       }

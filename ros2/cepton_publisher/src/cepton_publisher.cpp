@@ -618,7 +618,9 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
                   multicast_ptr ? multicast_ptr : "none");
 
       ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
-      check_sdk_error(ret, "CeptonAddNetworkingSource");
+      if (ret != CEPTON_SUCCESS) {
+          std::cout << "Source not added successfully, check that sensor is configured properly and running: " << source_str.c_str() << std::endl;
+      }
 
       // Store for cleanup
       networking_sources_.push_back({ip, port, multicast_group});
