@@ -14,6 +14,52 @@ PLUGINLIB_EXPORT_CLASS(cepton_ros::PublisherNodelet, nodelet::Nodelet);
 
 inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
+/**
+ * Parse a network source string in the format "ip:port" or "ip:port:multicast"
+ * @param source_str The source string to parse
+ * @param ip Output parameter for IP address (empty string for nullptr/0.0.0.0)
+ * @param port Output parameter for port number
+ * @param multicast_group Output parameter for multicast group (empty string for
+ * nullptr)
+ * @return true if parsing succeeded, false otherwise
+ */
+bool parse_network_source(const std::string &source_str, std::string &ip,
+                          uint16_t &port, std::string &multicast_group) {
+  // Split by ':' delimiter
+  size_t first_colon = source_str.find(':');
+  if (first_colon == std::string::npos) {
+    return false;
+  }
+
+  ip = source_str.substr(0, first_colon);
+  size_t second_colon = source_str.find(':', first_colon + 1);
+
+  std::string port_str;
+  if (second_colon != std::string::npos) {
+    // Format: ip:port:multicast
+    port_str =
+        source_str.substr(first_colon + 1, second_colon - first_colon - 1);
+    multicast_group = source_str.substr(second_colon + 1);
+  } else {
+    // Format: ip:port
+    port_str = source_str.substr(first_colon + 1);
+    multicast_group = "";
+  }
+
+  // Parse port
+  try {
+    int port_int = std::stoi(port_str);
+    if (port_int < 0 || port_int > 65535) {
+      return false;
+    }
+    port = static_cast<uint16_t>(port_int);
+  } catch (...) {
+    return false;
+  }
+
+  return true;
+}
+
 namespace cepton_ros {
 
 /**
@@ -36,6 +82,18 @@ void on_sensor_info(CeptonSensorHandle handle, const struct CeptonSensor *info,
 
 PublisherNodelet::~PublisherNodelet() {
   int ret;
+
+  // Remove all networking sources
+  for (const auto &source : networking_sources_) {
+    const char *ip_ptr = (source.ip.empty() || source.ip == "0.0.0.0")
+                             ? nullptr
+                             : source.ip.c_str();
+    const char *multicast_ptr =
+        source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
+    ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
+    check_api_error(ret, "CeptonRemoveNetworkingSource");
+  }
+
   ret = CeptonDeinitialize();
   check_api_error(ret, "CeptonDeinitialize");
 }
@@ -95,6 +153,11 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("output_by_handle", output_by_handle_,
                              output_by_handle_);
   private_node_handle_.param("output_by_sn", output_by_sn_, output_by_sn_);
+
+  std::vector<std::string> sensor_network_sources;
+  private_node_handle_.param("sensor_network_sources", sensor_network_sources,
+                             sensor_network_sources);
+
   private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_,
                              expected_sensor_ips_);
 
@@ -171,8 +234,46 @@ void PublisherNodelet::onInit() {
                                &replay_handle_);
     check_api_error(ret, "CeptonReplayLoadPcap");
   } else {
-    ret = CeptonStartNetworking();
-    check_api_error(ret, "CeptonStartNetworking");
+    // Add networking sources for UDP data from specified network sources.
+    // Format is "ip:port" or "ip:port:multicast_group"
+    if (sensor_network_sources.empty()) {
+      // If no sources specified, add default networking source (all
+      // interfaces, port 8808). Listen on all interfaces (nullptr) with no
+      // multicast group (nullptr for unicast operation)
+      ROS_INFO("Add networking source on default: 0.0.0.0:8808");
+      ret = CeptonAddNetworkingSource(nullptr, 8808, nullptr);
+      check_api_error(ret, "CeptonAddNetworkingSource");
+      networking_sources_.push_back({"0.0.0.0", 8808, ""});
+    } else {
+      // Add a networking source for each configured source string
+      for (const auto &source_str : sensor_network_sources) {
+        std::string ip;
+        uint16_t port;
+        std::string multicast_group;
+
+        if (!parse_network_source(source_str, ip, port, multicast_group)) {
+          ROS_ERROR("Failed to parse network source: %s", source_str.c_str());
+          continue;
+        }
+
+        // Convert empty IP string or "0.0.0.0" to nullptr for SDK
+        const char *ip_ptr =
+            (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
+        const char *multicast_ptr =
+            multicast_group.empty() ? nullptr : multicast_group.c_str();
+
+        ROS_INFO("Add networking source: ip=%s, port=%d, multicast=%s",
+                 ip_ptr ? ip_ptr : "0.0.0.0", port,
+                 multicast_ptr ? multicast_ptr : "none");
+
+        ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
+        if (ret != CEPTON_SUCCESS) {
+          NODELET_ERROR("Source not added successfully, check that sensor is configured properly and running: %s", source_str.c_str());
+        }
+        // Store for cleanup
+        networking_sources_.push_back({ip, port, multicast_group});
+      }
+    }
   }
 
   // Listen for frames
@@ -245,8 +346,7 @@ void PublisherNodelet::onInit() {
 
   // Set up the expected IPs (convert IP strings to u32)
   for (auto const &expected_ip : expected_sensor_ips_) {
-    NODELET_INFO("[%s] Adding expected IP %s\n", getName().c_str(),
-                 expected_ip.c_str());
+    ROS_INFO("Adding expected IP %s", expected_ip.c_str());
     struct in_addr addr;
     inet_aton(expected_ip.c_str(), &addr);
     // handle is in big-endian. inet_aton returns little endian

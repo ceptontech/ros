@@ -21,7 +21,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-String VERSION = "v2.0.2";
+String VERSION = "v2.0.4";
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
@@ -47,6 +47,17 @@ class CeptonPublisher : public rclcpp::Node {
 
  private:
   CeptonReplayHandle replay_handle = 0;
+
+  /** 
+   * Store network source information (ip, port, multicast_group) for cleanup
+   * on shutdown
+   */
+  struct NetworkSource {
+    std::string ip;
+    uint16_t port;
+    std::string multicast_group;
+  };
+  std::vector<NetworkSource> networking_sources_;
 
   /**
    * @brief Responsible for publishing the points received from the SDK

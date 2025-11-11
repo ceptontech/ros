@@ -28,7 +28,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-const String VERSION = "v2.0.2";
+const String VERSION = "v2.0.4";
 
 /**
  * Cepton SDK nodelet. Publishes sensor point topics.
@@ -99,6 +99,17 @@ class PublisherNodelet : public nodelet::Nodelet {
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY;
   CeptonReplayHandle replay_handle_{0};
+
+  /**
+   * Store network source information (ip, port, multicast_group) for cleanup
+   * on shutdown
+   */
+  struct NetworkSource {
+    std::string ip;
+    uint16_t port;
+    std::string multicast_group;
+  };
+  std::vector<NetworkSource> networking_sources_;
 
   /** If set to true, the nodelet will advertise topics by sensor handle */
   bool output_by_handle_{true};

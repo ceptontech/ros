@@ -1,6 +1,7 @@
 # YAML configuration file for loading default parameters into PubsliherNodelet
 capture_path: ""
 capture_loop: true
+sensor_network_sources: ["0.0.0.0:8808"]  # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
 include_saturated_points: true
 include_second_return_points: true
 include_invalid_points: false

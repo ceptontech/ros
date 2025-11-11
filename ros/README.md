@@ -16,6 +16,28 @@ This guide covers all configuration options available for the Cepton ROS Publish
 - **Usage**: Only applies when `capture_path` is specified
 - **Note**: Sets the `CEPTON_REPLAY_FLAG_PLAY_LOOPED` flag internally
 
+#### `sensor_network_sources` (vector<string>, default: ["0.0.0.0:8808"])
+- **Description**: List of network sources for receiving live sensor data
+- **Usage**: Only applies when not using capture file replay. Each source is specified as "ip:port" or "ip:port:multicast_group"
+- **Format**: 
+  - `"ip:port"` - Unicast on specific interface or all interfaces (0.0.0.0)
+  - `"ip:port:multicast_group"` - Multicast configuration
+- **Note**: Standard Cepton sensor communication port is 8808. Empty list defaults to "0.0.0.0:8808"
+- **Example**:
+```yaml
+# Listen on all interfaces, port 8808
+sensor_network_sources: ["0.0.0.0:8808"]
+
+# Multiple ports on all interfaces
+sensor_network_sources: ["0.0.0.0:8808", "0.0.0.0:8809"]
+
+# Specific interface
+sensor_network_sources: ["192.168.1.100:8808"]
+
+# With multicast
+sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
+```
+
 ### Output Configuration
 
 #### `output_by_handle` (bool, default: varies)
