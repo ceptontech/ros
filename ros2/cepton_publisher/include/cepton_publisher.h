@@ -21,7 +21,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-String VERSION = "v2.0.2";
+String VERSION = "v2.0.4";
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
