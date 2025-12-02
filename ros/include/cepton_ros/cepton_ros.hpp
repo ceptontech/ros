@@ -23,10 +23,10 @@ struct Point {
   float z;
   float intensity;
 #ifdef WITH_TS_CH_F
-  uint8_t relative_timestamp;
-  uint8_t flags;
-  uint8_t channel_id;
-  uint8_t valid;
+  uint16_t relative_timestamp;
+  uint16_t flags;
+  uint16_t channel_id;
+  uint16_t valid;
 #endif
 #ifdef WITH_POLAR
   float azimuth;
@@ -45,10 +45,10 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
     (float, z, z)
     (float, intensity, intensity)
     #ifdef WITH_TS_CH_F
-    (std::uint8_t, relative_timestamp, relative_timestamp)
-    (std::uint8_t, flags, flags)
-    (std::uint8_t, channel_id, channel_id)
-    (std::uint8_t, valid, valid)
+    (std::uint16_t, relative_timestamp, relative_timestamp)
+    (std::uint16_t, flags, flags)
+    (std::uint16_t, channel_id, channel_id)
+    (std::uint16_t, valid, valid)
     #endif
     #ifdef WITH_POLAR
     (float, azimuth, azimuth)
