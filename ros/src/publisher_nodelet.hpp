@@ -28,7 +28,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-const String VERSION = "v2.0.4";
+const String VERSION = "v2.1.0";
 
 /**
  * Cepton SDK nodelet. Publishes sensor point topics.

@@ -21,7 +21,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-String VERSION = "v2.0.4";
+String VERSION = "v2.1.0";
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
@@ -48,7 +48,7 @@ class CeptonPublisher : public rclcpp::Node {
  private:
   CeptonReplayHandle replay_handle = 0;
 
-  /** 
+  /**
    * Store network source information (ip, port, multicast_group) for cleanup
    * on shutdown
    */
@@ -134,16 +134,16 @@ class CeptonPublisher : public rclcpp::Node {
   double max_distance_{std::numeric_limits<float>::max()};
 
   void ensure_pcl2_publisher(CeptonSensorHandle handle,
-                             std::string const &topic, PointPublisherMap &m);
+                             std::string const& topic, PointPublisherMap& m);
   void ensure_info_publisher(CeptonSensorHandle handle,
-                             std::string const &topic, InfoPublisherMap &m);
+                             std::string const& topic, InfoPublisherMap& m);
   std::future<void> pub_fut_;
 
  public:
   void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
-                      size_t n_points, const CeptonPointEx *points);
+                      size_t n_points, const CeptonPointEx* points);
 
-  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor *info);
+  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor* info);
 };
 
 }  // namespace cepton_ros
