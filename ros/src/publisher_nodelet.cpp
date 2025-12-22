@@ -382,11 +382,10 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cloud.width += n_points;
   }
 
-  auto const start_index = first ? 0 : cloud.width;
   int kept = first ? 0 : cloud.width;
 
   // Add the points
-  for (int i = start_index; i < start_index + n_points; ++i) {
+  for (int i = 0; i < n_points; ++i) {
     cepton_ros::Point cp;
     auto const& p = points[i];
 
