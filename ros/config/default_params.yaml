@@ -1,7 +1,7 @@
 # YAML configuration file for loading default parameters into PubsliherNodelet
 capture_path: ""
 capture_loop: true
-sensor_network_sources: ["0.0.0.0:8808"]  # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
+sensor_network_sources: ["0.0.0.0:8808"] # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
 include_saturated_points: true
 include_second_return_points: true
 include_invalid_points: false
@@ -16,7 +16,8 @@ min_azimuth: -90.
 max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
+aggregate_frames: false
 
-# In ROS, unlike in ROS2, this needs to be set to an empty 
+# In ROS, unlike in ROS2, this needs to be set to an empty
 # list if not using the expected lidars feature.
 expected_sensor_ips: []

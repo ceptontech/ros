@@ -23,8 +23,8 @@ inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
  * nullptr)
  * @return true if parsing succeeded, false otherwise
  */
-bool parse_network_source(const std::string &source_str, std::string &ip,
-                          uint16_t &port, std::string &multicast_group) {
+bool parse_network_source(const std::string& source_str, std::string& ip,
+                          uint16_t& port, std::string& multicast_group) {
   // Split by ':' delimiter
   size_t first_colon = source_str.find(':');
   if (first_colon == std::string::npos) {
@@ -66,30 +66,31 @@ namespace cepton_ros {
  * SDK callback
  */
 void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
-                 size_t n_points, const struct CeptonPointEx *points,
-                 void *user_data) {
-  reinterpret_cast<PublisherNodelet *>(user_data)->publish_points(
+                 size_t n_points, const struct CeptonPointEx* points,
+                 void* user_data) {
+  reinterpret_cast<PublisherNodelet*>(user_data)->publish_points(
       handle, start_timestamp, n_points, points);
 }
 
 /**
  * SDK callback
  */
-void on_sensor_info(CeptonSensorHandle handle, const struct CeptonSensor *info,
-                    void *user_data) {
-  reinterpret_cast<PublisherNodelet *>(user_data)->publish_sensor_info(info);
+void on_sensor_info(CeptonSensorHandle handle, const struct CeptonSensor* info,
+                    void* user_data) {
+  reinterpret_cast<PublisherNodelet*>(user_data)->publish_sensor_info(info);
 }
 
 PublisherNodelet::~PublisherNodelet() {
   int ret;
 
   // Remove all networking sources
-  for (const auto &source : networking_sources_) {
-    const char *ip_ptr = (source.ip.empty() || source.ip == "0.0.0.0")
+  for (const auto& source : networking_sources_) {
+    const char* ip_ptr = (source.ip.empty() || source.ip == "0.0.0.0")
                              ? nullptr
                              : source.ip.c_str();
-    const char *multicast_ptr =
-        source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
+    const char* multicast_ptr = source.multicast_group.empty()
+                                    ? nullptr
+                                    : source.multicast_group.c_str();
     ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
     check_api_error(ret, "CeptonRemoveNetworkingSource");
   }
@@ -98,7 +99,7 @@ PublisherNodelet::~PublisherNodelet() {
   check_api_error(ret, "CeptonDeinitialize");
 }
 
-void PublisherNodelet::check_api_error(int err, char const *api) {
+void PublisherNodelet::check_api_error(int err, char const* api) {
   if (err != CEPTON_SUCCESS) {
     NODELET_ERROR("[%s] API error: %s -> %s", getName().c_str(), api,
                   CeptonGetErrorCodeName(err));
@@ -161,6 +162,9 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_,
                              expected_sensor_ips_);
 
+  private_node_handle_.param("aggregate_frames", aggregate_frames_,
+                             aggregate_frames_);
+
   // Check for which points should be included based on params for flag bits
   {
     bool include = true;
@@ -194,7 +198,7 @@ void PublisherNodelet::onInit() {
     private_node_handle_.param("include_ambient_points", include, false);
     include_flag_ |= (include ? CEPTON_POINT_AMBIENT : 0);
     ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
-    
+
     ROS_INFO("=================================================\n");
   }
 
@@ -246,7 +250,7 @@ void PublisherNodelet::onInit() {
       networking_sources_.push_back({"0.0.0.0", 8808, ""});
     } else {
       // Add a networking source for each configured source string
-      for (const auto &source_str : sensor_network_sources) {
+      for (const auto& source_str : sensor_network_sources) {
         std::string ip;
         uint16_t port;
         std::string multicast_group;
@@ -257,9 +261,9 @@ void PublisherNodelet::onInit() {
         }
 
         // Convert empty IP string or "0.0.0.0" to nullptr for SDK
-        const char *ip_ptr =
+        const char* ip_ptr =
             (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
-        const char *multicast_ptr =
+        const char* multicast_ptr =
             multicast_group.empty() ? nullptr : multicast_group.c_str();
 
         ROS_INFO("Add networking source: ip=%s, port=%d, multicast=%s",
@@ -268,7 +272,10 @@ void PublisherNodelet::onInit() {
 
         ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
         if (ret != CEPTON_SUCCESS) {
-          NODELET_ERROR("Source not added successfully, check that sensor is configured properly and running: %s", source_str.c_str());
+          NODELET_ERROR(
+              "Source not added successfully, check that sensor is configured "
+              "properly and running: %s",
+              source_str.c_str());
         }
         // Store for cleanup
         networking_sources_.push_back({ip, port, multicast_group});
@@ -288,7 +295,7 @@ void PublisherNodelet::onInit() {
   // Start watchdog timer, if using pcap replay
   if (!capture_path.empty()) {
     watchdog_timer_ = node_handle_.createTimer(
-        ros::Duration(0.1), [&](const ros::TimerEvent &event) {
+        ros::Duration(0.1), [&](const ros::TimerEvent& event) {
           // Shut down if a replay was loaded, and if the replay is finished
           if (replay_handle_ != 0 &&
               CeptonReplayIsFinished(replay_handle_) == 1) {
@@ -345,7 +352,7 @@ void PublisherNodelet::onInit() {
   }
 
   // Set up the expected IPs (convert IP strings to u32)
-  for (auto const &expected_ip : expected_sensor_ips_) {
+  for (auto const& expected_ip : expected_sensor_ips_) {
     ROS_INFO("Adding expected IP %s", expected_ip.c_str());
     struct in_addr addr;
     inet_aton(expected_ip.c_str(), &addr);
@@ -355,17 +362,115 @@ void PublisherNodelet::onInit() {
   }
 }
 
+void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
+                        size_t n_points, const CeptonPointEx* points,
+                        bool first, float min_distance, float max_distance,
+                        float min_image_x, float max_image_x, float min_image_z,
+                        float max_image_z, uint16_t include_flag) {
+  const auto max_distance_squared = max_distance * max_distance;
+  const auto min_distance_squared = min_distance * min_distance;
+
+  if (first) {
+    // Reset
+    cloud.clear();
+    cloud.header.stamp = start_timestamp;
+    cloud.header.frame_id = "cepton3";
+    cloud.height = 1;
+    cloud.width = n_points;
+    cloud.reserve(n_points);
+  } else {
+    cloud.width += n_points;
+  }
+
+  auto const start_index = first ? 0 : cloud.width;
+  int kept = first ? 0 : cloud.width;
+
+  // Add the points
+  for (int i = start_index; i < start_index + n_points; ++i) {
+    cepton_ros::Point cp;
+    auto const& p = points[i];
+
+    // If point has flags that should not be included (specified by the
+    // include_flag), continue
+    if ((~include_flag & p.flags) != 0) continue;
+
+    // Convert the units to meters (SDK unit is 1.0 / 65536.0)
+    float x = static_cast<float>(p.x) / 65536.0;
+    float y = static_cast<float>(p.y) / 65536.0;
+    float z = static_cast<float>(p.z) / 65536.0;
+
+    // Convert the coordinates to ROS coordinates.
+    {
+      const auto tx = y;
+      const auto ty = -x;
+      const auto tz = z;
+      x = tx;
+      y = ty;
+      z = tz;
+    }
+
+    const float distance_squared = x * x + y * y + z * z;
+
+    // Filter out points that are labelled ambient but have invalid
+    // distance until point flag definitions are finalized (> 500m for
+    // now)
+    if (distance_squared >= 500 * 500) continue;
+
+    const float tan_yx = y / x;
+    const float tan_zx = z / x;
+
+    if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z ||
+        tan_zx > max_image_z || distance_squared < min_distance_squared ||
+        distance_squared > max_distance_squared)
+      continue;
+
+    cp.x = x;
+    cp.y = y;
+    cp.z = z;
+    cp.intensity = p.reflectivity * 0.01;
+
+#ifdef WITH_TS_CH_F
+    cp.relative_timestamp = p.relative_timestamp;
+    cp.channel_id = p.channel_id;
+    cp.flags = p.flags;
+    cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
+#endif
+#ifdef WITH_POLAR
+    const double azimuth_rad = atan(tan_yx);
+    const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
+    cp.azimuth = azimuth_rad;
+    cp.elevation = elevation_rad;
+#endif
+    cloud.points.push_back(cp);
+    kept++;
+  }
+  // Resize according to number of kept points
+  cloud.width = kept;
+  if (kept > 0) cloud.points.resize(kept);
+}
+
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
                                       int64_t start_timestamp, size_t n_points,
-                                      const CeptonPointEx *points) {
+                                      const CeptonPointEx* points) {
   // Buffer to build the output cloud
   static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
+
+  // Store the parity of each cloud. This may be used for 2-frames aggregation
+  static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
 
   // Update the sensor status
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     last_points_time_[handle] = std::chrono::system_clock::now();
   }
+
+  // Update parity
+  if (cloud_parity.find(handle) == cloud_parity.end()) {
+    cloud_parity[handle] = 0;
+  }
+  cloud_parity[handle] = 1 - cloud_parity[handle];
+
+  const auto first = cloud_parity[handle] == 1;
 
   // Prep the cloud
   {
@@ -374,82 +479,17 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
       clouds[handle] = cepton_ros::Cloud();
 
     // Modify the same cloud buffer each time to avoid realloc
-    auto &cloud = clouds[handle];
-    cloud.clear();
-    cloud.header.stamp = start_timestamp;
-    cloud.header.frame_id = "cepton3";
-    cloud.height = 1;
-    cloud.width = n_points;
-    cloud.reserve(n_points);
+    auto& cloud = clouds[handle];
 
-    const auto max_distance_squared = max_distance_ * max_distance_;
-    const auto min_distance_squared = min_distance_ * min_distance_;
+    // Add the new points
+    extend_from_points(cloud, start_timestamp, n_points, points, first,
+                       min_distance_, max_distance_, min_image_x_, max_image_x_,
+                       min_image_z_, max_image_z_, include_flag_);
+  }
 
-    // Loop and add the points
-    int kept = 0;
-    int noise_count = 0;
-    for (int i = 0; i < n_points; ++i) {
-      cepton_ros::Point cp;
-      auto const &p = points[i];
-
-      // If point has flags that should not be included (specified by the
-      // include_flag), continue
-      if ((~include_flag_ & p.flags) != 0) continue;
-
-      // Convert the units to meters (SDK unit is 1.0 / 65536.0)
-      float x = static_cast<float>(p.x) / 65536.0;
-      float y = static_cast<float>(p.y) / 65536.0;
-      float z = static_cast<float>(p.z) / 65536.0;
-
-      // Convert the coordinates to ROS coordinates.
-      {
-        const auto tx = y;
-        const auto ty = -x;
-        const auto tz = z;
-        x = tx;
-        y = ty;
-        z = tz;
-      }
-
-      const float distance_squared = x * x + y * y + z * z;
-
-      // Filter out points that are labelled ambient but have invalid
-      // distance until point flag definitions are finalized (> 500m for
-      // now)
-      if (distance_squared >= 500 * 500) continue;
-
-      const float tan_yx = y / x;
-      const float tan_zx = z / x;
-
-      if (tan_yx < min_image_x_ || tan_yx > max_image_x_ ||
-          tan_zx < min_image_z_ || tan_zx > max_image_z_ ||
-          distance_squared < min_distance_squared ||
-          distance_squared > max_distance_squared)
-        continue;
-
-      cp.x = x;
-      cp.y = y;
-      cp.z = z;
-      cp.intensity = p.reflectivity * 0.01;
-
-#ifdef WITH_TS_CH_F
-      cp.relative_timestamp = p.relative_timestamp;
-      cp.channel_id = p.channel_id;
-      cp.flags = p.flags;
-      cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
-#endif
-#ifdef WITH_POLAR
-      const double azimuth_rad = atan(tan_yx);
-      const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
-      cp.azimuth = azimuth_rad;
-      cp.elevation = elevation_rad;
-#endif
-      cloud.points.push_back(cp);
-      kept++;
-    }
-    // Resize according to number of kept points
-    cloud.width = kept;
-    if (kept > 0) cloud.points.resize(kept);
+  // If not ready to publish, return
+  if (aggregate_frames_ && first) {
+    return;
   }
 
   // Publish the point cloud
@@ -460,7 +500,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     // Launch a new process to do the publishing
     pub_fut_ =
         std::async(std::launch::async, [this, handle, start_timestamp]() {
-          auto const &cloud = clouds[handle];
+          auto const& cloud = clouds[handle];
 
           // Publish points
           points_publisher_.publish(cloud);
@@ -476,7 +516,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
   }
 }
 
-void PublisherNodelet::publish_sensor_info(const CeptonSensor *info) {
+void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
@@ -521,7 +561,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor *info) {
 
   msg.handle = info->handle;
   msg.serial_number = info->serial_number;
-  msg.model_name = reinterpret_cast<char const *>(info->model_name);
+  msg.model_name = reinterpret_cast<char const*>(info->model_name);
   msg.model = info->model;
   msg.part_number = info->part_number;
   msg.firmware_version = info->firmware_version;

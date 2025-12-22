@@ -43,18 +43,17 @@ class PublisherNodelet : public nodelet::Nodelet {
  public:
   ~PublisherNodelet();
 
-  void check_api_error(int err, char const *api);
+  void check_api_error(int err, char const* api);
 
   void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
-                      size_t n_points, const CeptonPointEx *points);
+                      size_t n_points, const CeptonPointEx* points);
 
-  void publish_sensor_info(const CeptonSensor *info);
+  void publish_sensor_info(const CeptonSensor* info);
 
  protected:
   void onInit() override;
 
  private:
-
   /** ROS node handle for public fields */
   ros::NodeHandle node_handle_;
 
@@ -82,22 +81,19 @@ class PublisherNodelet : public nodelet::Nodelet {
   /** Publisher for the status messages */
   ros::Publisher sensor_status_publisher_;
 
-  /**
-   * Flag that is populated by settings, telling the nodelet which points
-   * should be included in the output messages
-   */
-  // uint8_t include_flag_;
-  /* Based on config params, bit is flipped as 1 for point flags that should be
-  included, while 0 if excluded The pre-included flags are "ignored," either
-  because it is for internal use only (hence no config to include them) or
-  because it is deprecated.
-
-  Ambient point information exists for all points, the corresponding flag bit
-  for ambient point is (1 << 15), hence the inclusion to include_flag_*/
   const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
 
+  /**
+   * Flag that is populated by settings, telling the nodelet which points should
+   * be included in the output messages.
+   *
+   * Based on config params; bit is flipped set as 1 for point flags which
+   * should be included, or 0 if excluded. The pre-included flags are "ignored",
+   * either because it is for internal use only, or because it is deprecated.
+   */
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY;
+
   CeptonReplayHandle replay_handle_{0};
 
   /**
@@ -131,8 +127,12 @@ class PublisherNodelet : public nodelet::Nodelet {
   double min_image_z_{0.0};
   double max_image_z_{0.0};
 
-  double min_distance_{0.0};
-  double max_distance_{std::numeric_limits<float>::max()};
+  /** The minimum point distance to keep (meters) */
+  float min_distance_{0.0};
+  /** The maximum point distance to keep (meters) */
+  float max_distance_{std::numeric_limits<float>::max()};
+
+  bool aggregate_frames_{false};
 
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
