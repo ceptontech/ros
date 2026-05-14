@@ -195,6 +195,10 @@ void PublisherNodelet::onInit() {
     include_flag_ |= (include ? CEPTON_POINT_BLOCKED : 0);
     ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
+    private_node_handle_.param("include_retro_points", include, false);
+    include_flag_ |= (include ? CEPTON_POINT_RETRO : 0);
+    ROS_INFO("Including Retro points: %s\n", include ? "true" : "false");
+
     private_node_handle_.param("include_ambient_points", include, false);
     include_flag_ |= (include ? CEPTON_POINT_AMBIENT : 0);
     ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
