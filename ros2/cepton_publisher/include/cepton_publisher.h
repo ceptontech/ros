@@ -102,14 +102,17 @@ class CeptonPublisher : public rclcpp::Node {
 
   const rclcpp::NodeOptions options;
 
-  /* Based on config params, bit is flipped as 1 for point flags that should be
-    included, while 0 if excluded The pre-included flags are "ignored," either
-    because it is for internal use only (hence no config to include them) or
-    because it is deprecated.
+    /* Based on config params, bit is flipped as 1 for point flags that should be
+        included, while 0 if excluded The pre-included flags are "ignored," either
+        because it is for internal use only (hence no config to include them) or
+        because it is deprecated.
 
-    Ambient point information exists for all points, the corresponding flag bit
-    for ambient point is (1 << 15), hence the inclusion to include_flag_*/
-  const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
+        Ambient point information exists for all points. Historically the ambient
+        flag used bit (1 << 15), while newer SDKs/firmware may use bit (1 << 3).
+        Accept both bits to remain compatible with different SDK/firmware
+        versions.
+    */
+    const uint16_t CEPTON_POINT_AMBIENT = (1 << 15) | (1 << 3);  // set in yaml file
 
   uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
                            CEPTON_POINT_FRAME_BOUNDARY;

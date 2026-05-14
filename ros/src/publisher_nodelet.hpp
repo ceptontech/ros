@@ -81,7 +81,10 @@ class PublisherNodelet : public nodelet::Nodelet {
   /** Publisher for the status messages */
   ros::Publisher sensor_status_publisher_;
 
-  const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
+  // Ambient point information may be encoded in either the historic bit
+  // (1<<15) or newer mapping (1<<3). Accept both to remain compatible
+  // with different SDK/firmware versions.
+  const uint16_t CEPTON_POINT_AMBIENT = (1 << 15) | (1 << 3);  // set in yaml file
 
   /**
    * Flag that is populated by settings, telling the nodelet which points should
