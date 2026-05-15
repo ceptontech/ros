@@ -107,15 +107,19 @@ class CeptonPublisher : public rclcpp::Node {
         because it is for internal use only (hence no config to include them) or
         because it is deprecated.
 
-        Ambient point information exists for all points. Historically the ambient
-        flag used bit (1 << 15), while newer SDKs/firmware may use bit (1 << 3).
-        Accept both bits to remain compatible with different SDK/firmware
+        Ambient point information exists for all points. Newer SDKs use bit (1 << 3).
         versions.
     */
-    const uint16_t CEPTON_POINT_AMBIENT = (1 << 15) | (1 << 3);  // set in yaml file
+    const uint16_t CEPTON_POINT_AMBIENT = 1 << 3;  // set in yaml file
 
-  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                           CEPTON_POINT_FRAME_BOUNDARY;
+    // SDK 21+ use bit 14 for SPAD column metadata. Allow it by default so the
+    // include filter does not drop valid points.
+    // Allow the point regardless of L or R columns
+    const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
+
+    uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
+                                                     CEPTON_POINT_FRAME_BOUNDARY |
+                                                     CEPTON_POINT_SPAD_COLUMN;
 
   /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
