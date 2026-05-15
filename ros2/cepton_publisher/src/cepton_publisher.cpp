@@ -398,6 +398,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("include_invalid_points", false);
   declare_parameter("include_noise_points", false);
   declare_parameter("include_blocked_points", true);
+  declare_parameter("include_retro_points", true);
   declare_parameter("include_ambient_points", true);
   declare_parameter("min_altitude", -90.);
   declare_parameter("max_altitude", 90.);
@@ -527,6 +528,11 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   include_flag_ |= (pKeepBlocked.as_bool() ? CEPTON_POINT_BLOCKED : 0);
   RCLCPP_DEBUG(this->get_logger(), "Including Blocked points: %s",
                pKeepBlocked.as_bool() ? "true" : "false");
+
+  rclcpp::Parameter pKeepRetro = get_parameter("include_retro_points");
+  include_flag_ |= (pKeepRetro.as_bool() ? CEPTON_POINT_RETRO : 0);
+  RCLCPP_DEBUG(this->get_logger(), "Including Retro points: %s",
+               pKeepRetro.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepAmbient = get_parameter("include_ambient_points");
   include_flag_ |= (pKeepAmbient.as_bool() ? CEPTON_POINT_AMBIENT : 0);

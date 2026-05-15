@@ -21,7 +21,7 @@ namespace cepton_ros {
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
-String VERSION = "v2.1.0";
+String VERSION = "v2.1.1";
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
 
@@ -102,17 +102,24 @@ class CeptonPublisher : public rclcpp::Node {
 
   const rclcpp::NodeOptions options;
 
-  /* Based on config params, bit is flipped as 1 for point flags that should be
-    included, while 0 if excluded The pre-included flags are "ignored," either
-    because it is for internal use only (hence no config to include them) or
-    because it is deprecated.
+    /* Based on config params, bit is flipped as 1 for point flags that should be
+        included, while 0 if excluded The pre-included flags are "ignored," either
+        because it is for internal use only (hence no config to include them) or
+        because it is deprecated.
 
-    Ambient point information exists for all points, the corresponding flag bit
-    for ambient point is (1 << 15), hence the inclusion to include_flag_*/
-  const uint16_t CEPTON_POINT_AMBIENT = 1 << 15;  // set in yaml file
+        Ambient point information exists for all points. Newer SDKs use bit (1 << 3).
+        versions.
+    */
+    const uint16_t CEPTON_POINT_AMBIENT = 1 << 3;  // set in yaml file
 
-  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                           CEPTON_POINT_FRAME_BOUNDARY;
+    // SDK 21+ use bit 14 for SPAD column metadata. Allow it by default so the
+    // include filter does not drop valid points.
+    // Allow the point regardless of L or R columns
+    const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
+
+    uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
+                                                     CEPTON_POINT_FRAME_BOUNDARY |
+                                                     CEPTON_POINT_SPAD_COLUMN;
 
   /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
