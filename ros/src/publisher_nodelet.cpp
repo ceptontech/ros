@@ -368,28 +368,25 @@ void PublisherNodelet::onInit() {
 
 void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
                         size_t n_points, const CeptonPointEx* points,
-                        bool first, float min_distance, float max_distance,
+                        bool reset_cloud, float min_distance, float max_distance,
                         float min_image_x, float max_image_x, float min_image_z,
                         float max_image_z, uint16_t include_flag) {
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
 
-  if (first) {
+  if (reset_cloud) {
     // Reset
     cloud.clear();
     cloud.header.stamp = start_timestamp;
     cloud.header.frame_id = "cepton3";
     cloud.height = 1;
-    cloud.width = n_points;
     cloud.reserve(n_points);
   } else {
-    cloud.width += n_points;
+    cloud.reserve(cloud.points.size() + n_points);
   }
 
-  int kept = first ? 0 : cloud.width;
-
   // Add the points
-  for (int i = 0; i < n_points; ++i) {
+  for (size_t i = 0; i < n_points; ++i) {
     cepton_ros::Point cp;
     auto const& p = points[i];
 
@@ -445,11 +442,10 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cp.elevation = elevation_rad;
 #endif
     cloud.points.push_back(cp);
-    kept++;
   }
-  // Resize according to number of kept points
-  cloud.width = kept;
-  if (kept > 0) cloud.points.resize(kept);
+
+  cloud.height = 1;
+  cloud.width = cloud.points.size();
 }
 
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
@@ -485,7 +481,8 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     auto& cloud = clouds[handle];
 
     // Add the new points
-    extend_from_points(cloud, start_timestamp, n_points, points, first,
+    const bool reset_cloud = first || !aggregate_frames_;
+    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
                        min_distance_, max_distance_, min_image_x_, max_image_x_,
                        min_image_z_, max_image_z_, include_flag_);
   }
