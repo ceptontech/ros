@@ -380,13 +380,12 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cloud.header.stamp = start_timestamp;
     cloud.header.frame_id = "cepton3";
     cloud.height = 1;
-    cloud.width = n_points;
     cloud.reserve(n_points);
   } else {
-    cloud.width += n_points;
+    cloud.reserve(cloud.points.size() + n_points);
   }
 
-  int kept = first ? 0 : cloud.width;
+  size_t kept = cloud.points.size();
 
   // Add the points
   for (int i = 0; i < n_points; ++i) {
@@ -449,7 +448,6 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
   }
   // Resize according to number of kept points
   cloud.width = kept;
-  if (kept > 0) cloud.points.resize(kept);
 }
 
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
@@ -457,6 +455,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
                                       const CeptonPointEx* points) {
   // Buffer to build the output cloud
   static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
+  static std::mutex clouds_lock;
 
   // Store the parity of each cloud. This may be used for 2-frames aggregation
   static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
@@ -467,16 +466,20 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     last_points_time_[handle] = std::chrono::system_clock::now();
   }
 
-  // Update parity
-  if (cloud_parity.find(handle) == cloud_parity.end()) {
-    cloud_parity[handle] = 0;
-  }
-  cloud_parity[handle] = 1 - cloud_parity[handle];
-
-  const auto first = cloud_parity[handle] == 1;
-
-  // Prep the cloud
   {
+    std::lock_guard<std::mutex> lock(clouds_lock);
+
+    // If the last publish is still pending, wait before touching cloud buffers.
+    if (pub_fut_.valid()) pub_fut_.wait();
+
+    // Update parity
+    if (cloud_parity.find(handle) == cloud_parity.end()) {
+      cloud_parity[handle] = 0;
+    }
+    cloud_parity[handle] = 1 - cloud_parity[handle];
+
+    const auto first = cloud_parity[handle] == 1;
+
     // Make sure there is an allocated buffer
     if (clouds.find(handle) == clouds.end())
       clouds[handle] = cepton_ros::Cloud();
@@ -488,33 +491,25 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     extend_from_points(cloud, start_timestamp, n_points, points, first,
                        min_distance_, max_distance_, min_image_x_, max_image_x_,
                        min_image_z_, max_image_z_, include_flag_);
-  }
 
-  // If not ready to publish, return
-  if (aggregate_frames_ && first) {
-    return;
-  }
+    // If not ready to publish, return
+    if (aggregate_frames_ && first) return;
 
-  // Publish the point cloud
-  {
-    // If the last publish is still pending, wait for it to finish
-    if (pub_fut_.valid()) pub_fut_.wait();
+    auto cloud_to_publish = cloud;
 
     // Launch a new process to do the publishing
     pub_fut_ =
-        std::async(std::launch::async, [this, handle, start_timestamp]() {
-          auto const& cloud = clouds[handle];
-
+        std::async(std::launch::async, [this, handle, cloud_to_publish]() {
           // Publish points
-          points_publisher_.publish(cloud);
+          points_publisher_.publish(cloud_to_publish);
 
           // Publish by handle
           if (handle_points_publisher_.count(handle) && output_by_handle_)
-            handle_points_publisher_[handle].publish(cloud);
+            handle_points_publisher_[handle].publish(cloud_to_publish);
 
           // Publish by serial number
           if (serial_points_publisher_.count(handle) && output_by_sn_)
-            serial_points_publisher_[handle].publish(cloud);
+            serial_points_publisher_[handle].publish(cloud_to_publish);
         });
   }
 }
