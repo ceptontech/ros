@@ -60,6 +60,31 @@ python3 capture_1frame_ros1.py \
   --include-header
 ```
 
+## 10フレームをCSV保存してグレースケール画像に変換する
+
+`capture_10frames_grayimage_ros1.py` は，`capture_1frame_ros1.py` を10回実行してCSVを保存し，
+各CSVを `ros/ros2/scripts/pointcloudgrayimage.py` でPNG画像に変換します．
+
+```bash
+python3 capture_10frames_grayimage_ros1.py
+```
+
+デフォルトでは以下に出力します．
+
+- CSV: `capture_grayimage_output/csv/cepton_frame_01.csv` から `cepton_frame_10.csv`
+- PNG: `capture_grayimage_output/grayimage/cepton_frame_01_gray.png` から `cepton_frame_10_gray.png`
+
+実行回数，出力先，トピック名，ガンマ値を指定する例です．
+
+```bash
+python3 capture_10frames_grayimage_ros1.py \
+  --topic /cepton3/points \
+  --count 10 \
+  --output-dir ./output_10frames \
+  --gamma 1.0 \
+  --timeout 10
+```
+
 
 
 
