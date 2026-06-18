@@ -1,5 +1,7 @@
 #include "publisher_nodelet.hpp"
 
+#include <cepton_ros/relative_timestamp.hpp>
+
 #include <arpa/inet.h>
 #include <math.h>
 #include <netinet/in.h>
@@ -61,6 +63,39 @@ bool parse_network_source(const std::string& source_str, std::string& ip,
 }
 
 namespace cepton_ros {
+
+const char* timestamp_mode_to_string(RelativeTimestampMode mode) {
+  switch (mode) {
+    case RelativeTimestampMode::Delta:
+      return "delta";
+    case RelativeTimestampMode::FrameOffset:
+      return "frame_offset";
+    case RelativeTimestampMode::Absolute:
+      return "absolute";
+  }
+  return "frame_offset";
+}
+
+RelativeTimestampMode parse_timestamp_mode(const std::string& mode) {
+  if (mode == "delta") return RelativeTimestampMode::Delta;
+  if (mode == "frame_offset") return RelativeTimestampMode::FrameOffset;
+  if (mode == "absolute") return RelativeTimestampMode::Absolute;
+  ROS_WARN("Unknown timestamp_mode '%s'; using frame_offset", mode.c_str());
+  return RelativeTimestampMode::FrameOffset;
+}
+
+ros::Publisher advertise_points(ros::NodeHandle& node_handle,
+                                const std::string& topic,
+                                RelativeTimestampMode mode,
+                                uint32_t queue_size) {
+  if (mode == RelativeTimestampMode::Delta) {
+    return node_handle.advertise<cepton_ros::CloudDelta>(topic, queue_size);
+  }
+  if (mode == RelativeTimestampMode::Absolute) {
+    return node_handle.advertise<cepton_ros::CloudAbsolute>(topic, queue_size);
+  }
+  return node_handle.advertise<cepton_ros::CloudFrameOffset>(topic, queue_size);
+}
 
 /**
  * SDK callback
@@ -165,6 +200,15 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
 
+#ifdef WITH_TS_CH_F
+  std::string timestamp_mode = "frame_offset";
+  private_node_handle_.param("relative_timestamp_mode", timestamp_mode,
+                             timestamp_mode);
+  private_node_handle_.param("timestamp_mode", timestamp_mode, timestamp_mode);
+  timestamp_mode_ = parse_timestamp_mode(timestamp_mode);
+  ROS_INFO("timestamp mode: %s", timestamp_mode_to_string(timestamp_mode_));
+#endif
+
   // Check for which points should be included based on params for flag bits
   {
     bool include = true;
@@ -213,7 +257,7 @@ void PublisherNodelet::onInit() {
 
   // All points
   points_publisher_ =
-      node_handle_.advertise<cepton_ros::Cloud>("cepton3/points", 50);
+      advertise_points(node_handle_, "cepton3/points", timestamp_mode_, 50);
 
   // Initialize SDK
   ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
@@ -366,7 +410,48 @@ void PublisherNodelet::onInit() {
   }
 }
 
-void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
+template <typename CloudT>
+void set_point_timestamp(typename CloudT::PointType& point,
+                         RelativeTimestampAccumulator& timestamp_accumulator,
+                         uint16_t relative_timestamp) {
+  (void)point;
+  (void)timestamp_accumulator;
+  (void)relative_timestamp;
+}
+
+#ifdef WITH_TS_CH_F
+template <>
+void set_point_timestamp<cepton_ros::CloudDelta>(
+    cepton_ros::PointDelta& point,
+    RelativeTimestampAccumulator& timestamp_accumulator,
+    uint16_t relative_timestamp) {
+  point.relative_timestamp =
+      timestamp_accumulator.add_delta_and_get_delta(relative_timestamp);
+}
+
+template <>
+void set_point_timestamp<cepton_ros::CloudFrameOffset>(
+    cepton_ros::PointFrameOffset& point,
+    RelativeTimestampAccumulator& timestamp_accumulator,
+    uint16_t relative_timestamp) {
+  point.relative_timestamp =
+      timestamp_accumulator.add_delta_and_get_frame_offset(relative_timestamp);
+}
+
+template <>
+void set_point_timestamp<cepton_ros::CloudAbsolute>(
+    cepton_ros::PointAbsolute& point,
+    RelativeTimestampAccumulator& timestamp_accumulator,
+    uint16_t relative_timestamp) {
+  const auto timestamp =
+      timestamp_accumulator.add_delta_and_get_absolute(relative_timestamp);
+  point.timestamp_sec = timestamp.sec;
+  point.timestamp_nsec = timestamp.nsec;
+}
+#endif
+
+template <typename CloudT>
+void extend_from_points(CloudT& cloud, int64_t start_timestamp,
                         size_t n_points, const CeptonPointEx* points,
                         bool reset_cloud, float min_distance, float max_distance,
                         float min_image_x, float max_image_x, float min_image_z,
@@ -385,10 +470,21 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cloud.reserve(cloud.points.size() + n_points);
   }
 
+#ifdef WITH_TS_CH_F
+  const auto cloud_start_timestamp = static_cast<int64_t>(cloud.header.stamp);
+  cepton_ros::RelativeTimestampAccumulator timestamp_accumulator(
+      start_timestamp, cloud_start_timestamp);
+#endif
+
   // Add the points
   for (size_t i = 0; i < n_points; ++i) {
-    cepton_ros::Point cp;
+    typename CloudT::PointType cp;
     auto const& p = points[i];
+
+#ifdef WITH_TS_CH_F
+    set_point_timestamp<CloudT>(cp, timestamp_accumulator,
+                                p.relative_timestamp);
+#endif
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
@@ -430,7 +526,6 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cp.intensity = p.reflectivity * 0.01;
 
 #ifdef WITH_TS_CH_F
-    cp.relative_timestamp = p.relative_timestamp;
     cp.channel_id = p.channel_id;
     cp.flags = p.flags;
     cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
@@ -452,7 +547,12 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
                                       int64_t start_timestamp, size_t n_points,
                                       const CeptonPointEx* points) {
   // Buffer to build the output cloud
-  static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
+  static std::unordered_map<CeptonSensorHandle, cepton_ros::CloudDelta>
+      delta_clouds;
+  static std::unordered_map<CeptonSensorHandle, cepton_ros::CloudFrameOffset>
+      frame_offset_clouds;
+  static std::unordered_map<CeptonSensorHandle, cepton_ros::CloudAbsolute>
+      absolute_clouds;
 
   // Store the parity of each cloud. This may be used for 2-frames aggregation
   static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
@@ -471,49 +571,83 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
   const auto first = cloud_parity[handle] == 1;
 
-  // Prep the cloud
-  {
-    // Make sure there is an allocated buffer
-    if (clouds.find(handle) == clouds.end())
-      clouds[handle] = cepton_ros::Cloud();
+  if (timestamp_mode_ == RelativeTimestampMode::Delta) {
+    if (delta_clouds.find(handle) == delta_clouds.end())
+      delta_clouds[handle] = cepton_ros::CloudDelta();
 
-    // Modify the same cloud buffer each time to avoid realloc
-    auto& cloud = clouds[handle];
-
-    // Add the new points
+    auto& cloud = delta_clouds[handle];
     const bool reset_cloud = first || !aggregate_frames_;
     extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
                        min_distance_, max_distance_, min_image_x_, max_image_x_,
                        min_image_z_, max_image_z_, include_flag_);
-  }
 
-  // If not ready to publish, return
-  if (aggregate_frames_ && first) {
+    if (aggregate_frames_ && first) return;
+    if (pub_fut_.valid()) pub_fut_.wait();
+
+    pub_fut_ = std::async(std::launch::async, [this, handle]() {
+      auto const& cloud = delta_clouds[handle];
+
+      points_publisher_.publish(cloud);
+
+      if (handle_points_publisher_.count(handle) && output_by_handle_)
+        handle_points_publisher_[handle].publish(cloud);
+
+      if (serial_points_publisher_.count(handle) && output_by_sn_)
+        serial_points_publisher_[handle].publish(cloud);
+    });
     return;
   }
 
-  // Publish the point cloud
-  {
-    // If the last publish is still pending, wait for it to finish
+  if (timestamp_mode_ == RelativeTimestampMode::Absolute) {
+    if (absolute_clouds.find(handle) == absolute_clouds.end())
+      absolute_clouds[handle] = cepton_ros::CloudAbsolute();
+
+    auto& cloud = absolute_clouds[handle];
+    const bool reset_cloud = first || !aggregate_frames_;
+    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
+                       min_distance_, max_distance_, min_image_x_, max_image_x_,
+                       min_image_z_, max_image_z_, include_flag_);
+
+    if (aggregate_frames_ && first) return;
     if (pub_fut_.valid()) pub_fut_.wait();
 
-    // Launch a new process to do the publishing
-    pub_fut_ =
-        std::async(std::launch::async, [this, handle, start_timestamp]() {
-          auto const& cloud = clouds[handle];
+    pub_fut_ = std::async(std::launch::async, [this, handle]() {
+      auto const& cloud = absolute_clouds[handle];
 
-          // Publish points
-          points_publisher_.publish(cloud);
+      points_publisher_.publish(cloud);
 
-          // Publish by handle
-          if (handle_points_publisher_.count(handle) && output_by_handle_)
-            handle_points_publisher_[handle].publish(cloud);
+      if (handle_points_publisher_.count(handle) && output_by_handle_)
+        handle_points_publisher_[handle].publish(cloud);
 
-          // Publish by serial number
-          if (serial_points_publisher_.count(handle) && output_by_sn_)
-            serial_points_publisher_[handle].publish(cloud);
-        });
+      if (serial_points_publisher_.count(handle) && output_by_sn_)
+        serial_points_publisher_[handle].publish(cloud);
+    });
+    return;
   }
+
+  if (frame_offset_clouds.find(handle) == frame_offset_clouds.end())
+    frame_offset_clouds[handle] = cepton_ros::CloudFrameOffset();
+
+  auto& cloud = frame_offset_clouds[handle];
+  const bool reset_cloud = first || !aggregate_frames_;
+  extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
+                     min_distance_, max_distance_, min_image_x_, max_image_x_,
+                     min_image_z_, max_image_z_, include_flag_);
+
+  if (aggregate_frames_ && first) return;
+  if (pub_fut_.valid()) pub_fut_.wait();
+
+  pub_fut_ = std::async(std::launch::async, [this, handle]() {
+    auto const& cloud = frame_offset_clouds[handle];
+
+    points_publisher_.publish(cloud);
+
+    if (handle_points_publisher_.count(handle) && output_by_handle_)
+      handle_points_publisher_[handle].publish(cloud);
+
+    if (serial_points_publisher_.count(handle) && output_by_sn_)
+      serial_points_publisher_[handle].publish(cloud);
+  });
 }
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
@@ -531,7 +665,8 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
     handle_points_publisher_.insert(
         std::pair<CeptonSensorHandle, ros::Publisher>(
             info->handle,
-            node_handle_.advertise<cepton_ros::Cloud>(handle_topic_name, 2)));
+            advertise_points(node_handle_, handle_topic_name, timestamp_mode_,
+                             2)));
   }
 
   // Create a points publisher by serial number
@@ -543,7 +678,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
     serial_points_publisher_.insert(
         std::pair<CeptonSensorHandle, ros::Publisher>(
             info->handle,
-            node_handle_.advertise<cepton_ros::Cloud>(sn_topic_name, 2)));
+            advertise_points(node_handle_, sn_topic_name, timestamp_mode_, 2)));
   }
 
   // Create an info publisher by handle

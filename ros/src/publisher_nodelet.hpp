@@ -20,6 +20,7 @@
 #include "cepton_ros/SensorInformation.h"
 #include "cepton_ros/SensorPanic.h"
 #include "cepton_ros/cepton_ros.hpp"
+#include "cepton_ros/relative_timestamp.hpp"
 #include "cepton_sdk3.h"
 
 enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
@@ -141,6 +142,8 @@ class PublisherNodelet : public nodelet::Nodelet {
   float max_distance_{std::numeric_limits<float>::max()};
 
   bool aggregate_frames_{false};
+
+  RelativeTimestampMode timestamp_mode_{RelativeTimestampMode::FrameOffset};
 
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
