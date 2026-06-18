@@ -146,6 +146,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
 
   // Store buffers for PointCloud2 point clouds (output)
   static unordered_map<CeptonSensorHandle, PointCloud2> clouds;
+  static unordered_map<CeptonSensorHandle, uint8_t> frame_counter;
 
   // Make sure the buffer is ready to be written (publish not in progress)
   if (pub_fut_.valid()) pub_fut_.wait();
@@ -155,15 +156,11 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   // single SDK thread so we don't need to lock a buffer, we just need to make
   // sure that the cloud is not currently being published.
 
-  // Create a buffer for this sensor's points, if needed
+  // Create a buffer and frame counter for this sensor's points, if needed
   if (clouds.find(handle) == clouds.end()) clouds[handle] = PointCloud2();
+  if (frame_counter.find(handle) == frame_counter.end()) frame_counter[handle] = 0;
 
   auto &cloud = clouds[handle];
-  cloud.header.stamp.sec = start_timestamp / 1'000'000;
-  // nanosec is the timestamp portion that is truncated from the sec.
-  // portion.
-  cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
-  cloud.header.frame_id = "cepton3";
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
@@ -175,31 +172,43 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   n_fields += 3;
 #endif
 
-  cloud_modifier.setPointCloud2Fields(
-      n_fields,
-      // clang-format off
-              "x", 1, PointField::FLOAT32,
-              "y", 1, PointField::FLOAT32,
-              "z", 1, PointField::FLOAT32,
-              "intensity", 1, PointField::FLOAT32
-              #ifdef WITH_TS_CH_F
-              ,
-              "timestamp_s", 1, PointField::INT32,
-              "timestamp_us", 1, PointField::INT32,
-              "flags", 1, PointField::UINT16,
-              "channel_id", 1, PointField::UINT16
-              #endif
-              #ifdef WITH_POLAR
-              ,
-              "azimuth", 1, PointField::FLOAT32,
-              "elevation", 1, PointField::FLOAT32,
-              "range", 1, PointField::FLOAT32
-              #endif
-      // clang-format on
-  );
+  if (frame_counter[handle] == 0) {
+    cloud_modifier.resize(0);
 
-  // resizing should be done before the iters are declared, otw seg faults
-  cloud_modifier.resize(n_points);
+    cloud.header.stamp.sec = start_timestamp / 1'000'000;
+    // nanosec is the timestamp portion that is truncated from the sec.
+    // portion.
+    cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
+    cloud.header.frame_id = "cepton3";
+
+    cloud_modifier.setPointCloud2Fields(
+        n_fields,
+        // clang-format off
+                "x", 1, PointField::FLOAT32,
+                "y", 1, PointField::FLOAT32,
+                "z", 1, PointField::FLOAT32,
+                "intensity", 1, PointField::FLOAT32
+                #ifdef WITH_TS_CH_F
+                ,
+                "timestamp_s", 1, PointField::INT32,
+                "timestamp_us", 1, PointField::INT32,
+                "flags", 1, PointField::UINT16,
+                "channel_id", 1, PointField::UINT16
+                #endif
+                #ifdef WITH_POLAR
+                ,
+                "azimuth", 1, PointField::FLOAT32,
+                "elevation", 1, PointField::FLOAT32,
+                "range", 1, PointField::FLOAT32
+                #endif
+        // clang-format on
+    );
+  }
+
+  auto const first_new_point_index = cloud.width * cloud.height;
+  size_t kept;
+
+  cloud_modifier.resize(first_new_point_index + n_points);
 
   // Populate the cloud fields
   // Each iterator is optional, and depends on whether the field was added
@@ -226,7 +235,23 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
 #endif
 
-  int kept = 0;
+  for (size_t i = 0; i < first_new_point_index; i++) {
+    ++x_iter;
+    ++y_iter;
+    ++z_iter;
+    ++intensity_iter;
+#ifdef WITH_TS_CH_F
+    ++timestamp_sec_iter;
+    ++timestamp_usec_iter;
+    ++flag_iter;
+    ++channel_id_iter;
+#endif
+#ifdef WITH_POLAR
+    ++azim_iter;
+    ++elev_iter;
+    ++dist_iter;
+#endif
+  }
 
   auto const min_distance_squared = min_distance_ * min_distance_;
   auto const max_distance_squared = max_distance_ * max_distance_;
