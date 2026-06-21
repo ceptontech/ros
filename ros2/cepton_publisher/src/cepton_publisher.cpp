@@ -240,24 +240,29 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
 #endif
 
-  // aggregation shiteru bun zureru.
-  for (size_t i = 0; i < aggregated_point_count[handle]; ++i) {
-    ++x_iter;
-    ++y_iter;
-    ++z_iter;
-    ++intensity_iter;
+  // The maximum value of size_t is 4294967295 or 18446744073709551615,
+  // and the maximum value of int is 2147483647,
+  // so if aggregated_point_count exceeds the maximum value of int,
+  // things might go wrong, but it should probably be fine.
+  int const iterator_offset = static_cast<int>(aggregated_point_count[handle]);
+
+  x_iter += iterator_offset;
+  y_iter += iterator_offset;
+  z_iter += iterator_offset;
+  intensity_iter += iterator_offset;
+
 #ifdef WITH_TS_CH_F
-    ++timestamp_sec_iter;
-    ++timestamp_usec_iter;
-    ++flag_iter;
-    ++channel_id_iter;
-#endif
+  timestamp_sec_iter += iterator_offset;
+  timestamp_usec_iter += iterator_offset;
+  flag_iter += iterator_offset;
+  channel_id_iter += iterator_offset;
+#endif 
+
 #ifdef WITH_POLAR
-    ++azim_iter;
-    ++elev_iter;
-    ++dist_iter;
+  azim_iter += iterator_offset;
+  elev_iter += iterator_offset;
+  dist_iter += iterator_offset;
 #endif
-  }
 
   auto const min_distance_squared = min_distance_ * min_distance_;
   auto const max_distance_squared = max_distance_ * max_distance_;
