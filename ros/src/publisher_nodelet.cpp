@@ -516,6 +516,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
     // Add the new points
     const bool reset_cloud = first || !aggregate_frames_;
+<<<<<<< HEAD
     const auto stats = extend_from_points(
         cloud, start_timestamp, n_points, points, reset_cloud, min_distance_,
         max_distance_, min_image_x_, max_image_x_, min_image_z_, max_image_z_,
@@ -545,6 +546,14 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
           stats.rejected_flag_bit_counts[14],
           stats.rejected_flag_bit_counts[15]);
     }
+=======
+    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
+                       min_distance_, max_distance_, min_image_x_, max_image_x_,
+                       min_image_z_, max_image_z_, include_flag_);
+
+    NODELET_INFO("sdk_points=%zu publish_points=%zu", n_points,
+                 cloud.points.size());
+>>>>>>> 7e5de2acfa1ed3b850ad9d4183f4a2e8b2db71b1
   }
 
   // If not ready to publish, return
