@@ -485,6 +485,9 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
                        min_distance_, max_distance_, min_image_x_, max_image_x_,
                        min_image_z_, max_image_z_, include_flag_);
+
+    NODELET_INFO("sdk_points=%zu publish_points=%zu", n_points,
+                 cloud.points.size());
   }
 
   // If not ready to publish, return
