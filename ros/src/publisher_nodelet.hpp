@@ -83,6 +83,7 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   // Ambient point information may be encoded in 1<<3
   const uint16_t CEPTON_POINT_AMBIENT = 1 << 3;  // set in yaml file
+  const uint16_t CEPTON_POINT_RETRO_WEAK = 1 << 9;
 
   // SDK 21+ uses bit 14 for SPAD column, which is metadata rather
   // than a point-quality reject bit. Keep it allowed so valid points are not

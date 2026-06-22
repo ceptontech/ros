@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <pluginlib/class_list_macros.h>
 
+#include <array>
 #include <future>
 #include <iostream>
 #include <string>
@@ -138,10 +139,10 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("max_azimuth", max_azimuth_, max_azimuth_);
 
   // Clip so that we can safely take the tangent
-  min_azimuth_ = std::max(-89.9, min_azimuth_);
-  max_azimuth_ = std::min(89.9, max_azimuth_);
-  min_altitude_ = std::max(-89.9, min_altitude_);
-  max_altitude_ = std::min(89.9, max_altitude_);
+  min_azimuth_ = std::max(-89.999, min_azimuth_);
+  max_azimuth_ = std::min(89.999, max_azimuth_);
+  min_altitude_ = std::max(-89.999, min_altitude_);
+  max_altitude_ = std::min(89.999, max_altitude_);
 
   min_image_x_ = std::tan(degrees_to_radians(min_azimuth_));
   max_image_x_ = std::tan(degrees_to_radians(max_azimuth_));
@@ -196,7 +197,8 @@ void PublisherNodelet::onInit() {
     ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
     private_node_handle_.param("include_retro_points", include, false);
-    include_flag_ |= (include ? CEPTON_POINT_RETRO : 0);
+    include_flag_ |=
+        (include ? CEPTON_POINT_RETRO | CEPTON_POINT_RETRO_WEAK : 0);
     ROS_INFO("Including Retro points: %s\n", include ? "true" : "false");
 
     private_node_handle_.param("include_ambient_points", include, false);
@@ -366,11 +368,24 @@ void PublisherNodelet::onInit() {
   }
 }
 
-void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
-                        size_t n_points, const CeptonPointEx* points,
-                        bool reset_cloud, float min_distance, float max_distance,
-                        float min_image_x, float max_image_x, float min_image_z,
-                        float max_image_z, uint16_t include_flag) {
+struct PointFilterStats {
+  size_t accepted = 0;
+  size_t dropped_by_flags = 0;
+  size_t dropped_by_distance = 0;
+  size_t dropped_by_fov = 0;
+  uint16_t dropped_flag_mask = 0;
+  uint16_t rejected_flag_mask = 0;
+  std::array<size_t, 16> rejected_flag_bit_counts{};
+};
+
+PointFilterStats extend_from_points(cepton_ros::Cloud& cloud,
+                                    int64_t start_timestamp, size_t n_points,
+                                    const CeptonPointEx* points,
+                                    bool reset_cloud, float min_distance,
+                                    float max_distance, float min_image_x,
+                                    float max_image_x, float min_image_z,
+                                    float max_image_z, uint16_t include_flag) {
+  PointFilterStats stats;
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
 
@@ -392,7 +407,18 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
-    if ((~include_flag & p.flags) != 0) continue;
+    if ((~include_flag & p.flags) != 0) {
+      const uint16_t rejected_flags = ~include_flag & p.flags;
+      stats.dropped_by_flags++;
+      stats.dropped_flag_mask |= p.flags;
+      stats.rejected_flag_mask |= rejected_flags;
+      for (size_t bit = 0; bit < stats.rejected_flag_bit_counts.size(); ++bit) {
+        if (rejected_flags & (1 << bit)) {
+          stats.rejected_flag_bit_counts[bit]++;
+        }
+      }
+      continue;
+    }
 
     // Convert the units to meters (SDK unit is 1.0 / 65536.0)
     float x = static_cast<float>(p.x) / 65536.0;
@@ -414,15 +440,21 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) continue;
+
+    if (distance_squared < min_distance_squared ||
+        distance_squared > max_distance_squared) {
+      stats.dropped_by_distance++;
+      continue;
+    }
 
     const float tan_yx = y / x;
     const float tan_zx = z / x;
 
     if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z ||
-        tan_zx > max_image_z || distance_squared < min_distance_squared ||
-        distance_squared > max_distance_squared)
+        tan_zx > max_image_z) {
+      stats.dropped_by_fov++;
       continue;
+    }
 
     cp.x = x;
     cp.y = y;
@@ -442,10 +474,12 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cp.elevation = elevation_rad;
 #endif
     cloud.points.push_back(cp);
+    stats.accepted++;
   }
 
   cloud.height = 1;
   cloud.width = cloud.points.size();
+  return stats;
 }
 
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
@@ -482,9 +516,35 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
     // Add the new points
     const bool reset_cloud = first || !aggregate_frames_;
-    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud,
-                       min_distance_, max_distance_, min_image_x_, max_image_x_,
-                       min_image_z_, max_image_z_, include_flag_);
+    const auto stats = extend_from_points(
+        cloud, start_timestamp, n_points, points, reset_cloud, min_distance_,
+        max_distance_, min_image_x_, max_image_x_, min_image_z_, max_image_z_,
+        include_flag_);
+
+    NODELET_INFO(
+        "sdk_points=%zu accepted=%zu dropped_by_flags=%zu "
+        "dropped_by_distance=%zu dropped_by_fov=%zu publish_points=%zu",
+        n_points, stats.accepted, stats.dropped_by_flags,
+        stats.dropped_by_distance, stats.dropped_by_fov, cloud.points.size());
+    if (stats.dropped_by_flags > 0) {
+      NODELET_INFO(
+          "flag_drop_detail include_mask=0x%04x dropped_flag_mask=0x%04x "
+          "rejected_flag_mask=0x%04x rejected_bits=[0:%zu 1:%zu 2:%zu 3:%zu "
+          "4:%zu 5:%zu 6:%zu 7:%zu 8:%zu 9:%zu 10:%zu 11:%zu 12:%zu 13:%zu "
+          "14:%zu 15:%zu]",
+          include_flag_, stats.dropped_flag_mask, stats.rejected_flag_mask,
+          stats.rejected_flag_bit_counts[0], stats.rejected_flag_bit_counts[1],
+          stats.rejected_flag_bit_counts[2], stats.rejected_flag_bit_counts[3],
+          stats.rejected_flag_bit_counts[4], stats.rejected_flag_bit_counts[5],
+          stats.rejected_flag_bit_counts[6], stats.rejected_flag_bit_counts[7],
+          stats.rejected_flag_bit_counts[8], stats.rejected_flag_bit_counts[9],
+          stats.rejected_flag_bit_counts[10],
+          stats.rejected_flag_bit_counts[11],
+          stats.rejected_flag_bit_counts[12],
+          stats.rejected_flag_bit_counts[13],
+          stats.rejected_flag_bit_counts[14],
+          stats.rejected_flag_bit_counts[15]);
+    }
   }
 
   // If not ready to publish, return
