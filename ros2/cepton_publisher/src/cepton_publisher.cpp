@@ -496,7 +496,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
 
     // Register callback
-    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame,
+    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_SINGLE_PARITY_LEFT, on_ex_frame,
                                this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }

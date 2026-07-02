@@ -1,4 +1,5 @@
 {
+    "C_Cpp.clang_format_style": "none",
     "files.associations": {
         "*.css": "css",
         "string": "cpp",
