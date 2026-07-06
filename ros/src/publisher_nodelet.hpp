@@ -90,9 +90,6 @@ class PublisherNodelet : public nodelet::Nodelet {
   // Allow the point regardless of L or R columns
   const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
 
-  // Retro weak is encoded in bit 9. The bundled SDK header predates this flag.
-  const uint16_t CEPTON_POINT_RETRO_WEAK = 1 << 9;
-
   /**
    * Flag that is populated by settings, telling the nodelet which points should
    * be included in the output messages.
