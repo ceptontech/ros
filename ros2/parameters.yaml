@@ -23,6 +23,7 @@
     max_azimuth: 90.0
     max_distance: 1000.0
     min_distance: 0.0
+    aggregation_frame_count: 1 # 1 disables aggregation. Use 2-255 to aggregate frames.
 
     # If uncommented, this parameter must not be an empty list.
     # rclcpp cannot load empty lists properly, and this will throw an exception. https://github.com/ros2/rclcpp/issues/1955
