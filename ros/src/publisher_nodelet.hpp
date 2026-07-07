@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <fstream>
 #include <mutex>
 #include <numeric>
 #include <string>
@@ -153,6 +154,11 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   void publish_async(CeptonSensorHandle handle);
 
+#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
+  void write_mirror_sync_csv(CeptonSensorHandle handle,
+                             const CloudAbsolute& cloud);
+#endif
+
   std::mutex status_lock_;
 
   /** Monitor the starting timestamp of each frame */
@@ -163,6 +169,13 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   /** Store the handle to serial number mappings */
   SerialNumberMap handle_to_serial_number_;
+
+  /** CSV used to inspect mirror synchronization at channel 200. */
+  std::ofstream mirror_sync_csv_;
+  std::mutex mirror_sync_csv_lock_;
+  std::chrono::steady_clock::time_point mirror_sync_start_time_;
+  double mirror_sync_interval_sec_{20.0};
+  double mirror_sync_duration_sec_{1.0};
 
   bool stopping_{false};
 };
