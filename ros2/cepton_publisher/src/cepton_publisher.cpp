@@ -146,6 +146,8 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
 
   // Store buffers for PointCloud2 point clouds (output)
   static unordered_map<CeptonSensorHandle, PointCloud2> clouds;
+  static unordered_map<CeptonSensorHandle, uint8_t> frame_counter;
+  static unordered_map<CeptonSensorHandle, size_t> aggregated_point_count;
 
   // Make sure the buffer is ready to be written (publish not in progress)
   if (pub_fut_.valid()) pub_fut_.wait();
@@ -155,15 +157,13 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   // single SDK thread so we don't need to lock a buffer, we just need to make
   // sure that the cloud is not currently being published.
 
-  // Create a buffer for this sensor's points, if needed
+  // Create a buffer and frame counter for this sensor's points, if needed
   if (clouds.find(handle) == clouds.end()) clouds[handle] = PointCloud2();
+  if (frame_counter.find(handle) == frame_counter.end()) frame_counter[handle] = 0;
+  if (aggregated_point_count.find(handle) == aggregated_point_count.end())
+    aggregated_point_count[handle] = 0;
 
   auto &cloud = clouds[handle];
-  cloud.header.stamp.sec = start_timestamp / 1'000'000;
-  // nanosec is the timestamp portion that is truncated from the sec.
-  // portion.
-  cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
-  cloud.header.frame_id = "cepton3";
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
@@ -175,31 +175,45 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   n_fields += 3;
 #endif
 
-  cloud_modifier.setPointCloud2Fields(
-      n_fields,
-      // clang-format off
-              "x", 1, PointField::FLOAT32,
-              "y", 1, PointField::FLOAT32,
-              "z", 1, PointField::FLOAT32,
-              "intensity", 1, PointField::FLOAT32
-              #ifdef WITH_TS_CH_F
-              ,
-              "timestamp_s", 1, PointField::INT32,
-              "timestamp_us", 1, PointField::INT32,
-              "flags", 1, PointField::UINT16,
-              "channel_id", 1, PointField::UINT16
-              #endif
-              #ifdef WITH_POLAR
-              ,
-              "azimuth", 1, PointField::FLOAT32,
-              "elevation", 1, PointField::FLOAT32,
-              "range", 1, PointField::FLOAT32
-              #endif
-      // clang-format on
-  );
+  if (frame_counter[handle] == 0) {
+    aggregated_point_count[handle] = 0;
+    // Clear the previous aggregation before starting a new one.
+    cloud_modifier.clear();
 
-  // resizing should be done before the iters are declared, otw seg faults
-  cloud_modifier.resize(n_points);
+    cloud.header.stamp.sec = start_timestamp / 1'000'000;
+    // nanosec is the timestamp portion that is truncated from the sec.
+    // portion.
+    cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
+    cloud.header.frame_id = "cepton3";
+
+    cloud_modifier.setPointCloud2Fields(
+        n_fields,
+        // clang-format off
+                "x", 1, PointField::FLOAT32,
+                "y", 1, PointField::FLOAT32,
+                "z", 1, PointField::FLOAT32,
+                "intensity", 1, PointField::FLOAT32
+                #ifdef WITH_TS_CH_F
+                ,
+                "timestamp_s", 1, PointField::INT32,
+                "timestamp_us", 1, PointField::INT32,
+                "flags", 1, PointField::UINT16,
+                "channel_id", 1, PointField::UINT16
+                #endif
+                #ifdef WITH_POLAR
+                ,
+                "azimuth", 1, PointField::FLOAT32,
+                "elevation", 1, PointField::FLOAT32,
+                "range", 1, PointField::FLOAT32
+                #endif
+        // clang-format on
+    );
+
+    cloud_modifier.reserve(n_points * aggregation_frame_count_);
+    cloud_modifier.resize(n_points);
+  } else {
+    cloud_modifier.resize(aggregated_point_count[handle] + n_points);
+  }
 
   // Populate the cloud fields
   // Each iterator is optional, and depends on whether the field was added
@@ -226,21 +240,54 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto dist_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "range");
 #endif
 
-  int kept = 0;
+  // The maximum value of size_t is 4294967295 or 18446744073709551615,
+  // and the maximum value of int is 2147483647,
+  // so if aggregated_point_count exceeds the maximum value of int,
+  // things might go wrong, but it should probably be fine.
+  int const iterator_offset = static_cast<int>(aggregated_point_count[handle]);
+
+  x_iter += iterator_offset;
+  y_iter += iterator_offset;
+  z_iter += iterator_offset;
+  intensity_iter += iterator_offset;
+
+#ifdef WITH_TS_CH_F
+  timestamp_sec_iter += iterator_offset;
+  timestamp_usec_iter += iterator_offset;
+  flag_iter += iterator_offset;
+  channel_id_iter += iterator_offset;
+#endif 
+
+#ifdef WITH_POLAR
+  azim_iter += iterator_offset;
+  elev_iter += iterator_offset;
+  dist_iter += iterator_offset;
+#endif
 
   auto const min_distance_squared = min_distance_ * min_distance_;
   auto const max_distance_squared = max_distance_ * max_distance_;
 
+#ifdef WITH_TS_CH_F
   auto timestamp = start_timestamp;
+#endif
+
+  size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
     auto const &p0 = points[i];
 
+#ifdef WITH_TS_CH_F
+    // Keep timestamp progression aligned with the original point order, even
+    // when later filters drop this point.
     timestamp += p0.relative_timestamp;
+#endif
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
-    if ((~(include_flag_) & (p0.flags)) != 0) continue;
+    if ((~(include_flag_) & (p0.flags)) != 0) {
+      ++skipped;
+      continue;
+    }
 
     float x = p0.x * SDK_UNIT_TO_METERS;
     float y = p0.y * SDK_UNIT_TO_METERS;
@@ -261,7 +308,10 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) continue;
+    if (distance_squared >= 500 * 500) {
+      ++skipped;
+      continue;
+    }
 
     const float image_x = y / x;  // horizontal tangent
     const float image_z = z / x;  // vertical tangent
@@ -270,8 +320,10 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     if (image_x < min_image_x_ || image_x > max_image_x_ ||
         image_z < min_image_z_ || image_z > max_image_z_ ||
         distance_squared < min_distance_squared ||
-        distance_squared > max_distance_squared)
-      continue;
+        distance_squared > max_distance_squared) {
+          ++skipped;
+          continue;
+        }
 
     // x value
     *x_iter = x;
@@ -327,13 +379,15 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     *dist_iter = range_meas;
     ++dist_iter;
 #endif
-
-    kept++;
   }
+  aggregated_point_count[handle] += n_points - skipped;
+  ++frame_counter[handle];
+  if (frame_counter[handle] < aggregation_frame_count_) return;
+  frame_counter[handle] = 0;
+  cloud_modifier.resize(aggregated_point_count[handle]);
 
   // Set the final dimension of the cloud
-  cloud_modifier.resize(kept);
-  cloud.width = kept;
+  cloud.width = aggregated_point_count[handle];
   cloud.height = 1;
 
   // Publish. Creating the publish future means we can no longer write buffers
@@ -407,6 +461,9 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("max_distance", numeric_limits<float>::max());
   declare_parameter("min_distance", 0.0);
   declare_parameter("expected_sensor_ips", vector<string>{});
+  declare_parameter("aggregation_frame_count", 1);
+  aggregation_frame_count_ =
+      static_cast<uint8_t>(get_parameter("aggregation_frame_count").as_int());
 
   // Initialize sdk
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);

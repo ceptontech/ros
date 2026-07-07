@@ -140,6 +140,8 @@ class CeptonPublisher : public rclcpp::Node {
   double min_distance_{0.0};
   double max_distance_{std::numeric_limits<float>::max()};
 
+  uint8_t aggregation_frame_count_{1};
+
   void ensure_pcl2_publisher(CeptonSensorHandle handle,
                              std::string const& topic, PointPublisherMap& m);
   void ensure_info_publisher(CeptonSensorHandle handle,
