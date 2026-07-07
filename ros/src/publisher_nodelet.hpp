@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <cstdint>
 #include <mutex>
 #include <numeric>
 #include <string>
@@ -141,6 +142,15 @@ class PublisherNodelet : public nodelet::Nodelet {
   float max_distance_{std::numeric_limits<float>::max()};
 
   bool aggregate_frames_{false};
+
+  /** Export one frame to passed/filtered CSV files at this interval. */
+  uint64_t csv_export_interval_{100};
+
+  /** Directory in which validation CSV files are created. */
+  std::string csv_output_directory_{"/home/koito/Desktop/cepton_csv"};
+
+  /** Number of SDK frames received. */
+  uint64_t frame_number_{0};
 
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;

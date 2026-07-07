@@ -1,12 +1,18 @@
 #include "publisher_nodelet.hpp"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <math.h>
 #include <netinet/in.h>
 #include <pluginlib/class_list_macros.h>
+#include <sys/stat.h>
 
 #include <future>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -164,6 +170,27 @@ void PublisherNodelet::onInit() {
 
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
+
+  int csv_export_interval = static_cast<int>(csv_export_interval_);
+  private_node_handle_.param("csv_export_interval", csv_export_interval,
+                             csv_export_interval);
+  csv_export_interval_ = csv_export_interval > 0
+                             ? static_cast<uint64_t>(csv_export_interval)
+                             : 0;
+  private_node_handle_.param("csv_output_directory", csv_output_directory_,
+                             csv_output_directory_);
+
+  if (csv_export_interval_ > 0) {
+    if (mkdir(csv_output_directory_.c_str(), 0755) != 0 && errno != EEXIST) {
+      ROS_ERROR("Could not create CSV output directory %s: %s",
+                csv_output_directory_.c_str(), strerror(errno));
+      csv_export_interval_ = 0;
+    } else {
+      ROS_INFO("Exporting every %lu-th frame to CSV in %s",
+               static_cast<unsigned long>(csv_export_interval_),
+               csv_output_directory_.c_str());
+    }
+  }
 
   // Check for which points should be included based on params for flag bits
   {
@@ -371,14 +398,83 @@ void PublisherNodelet::onInit() {
   }
 }
 
+struct FilterResult {
+  float x;
+  float y;
+  float z;
+  bool passed;
+  const char* reason;
+};
+
+FilterResult filter_point(const CeptonPointEx& p, float min_distance,
+                          float max_distance, float min_image_x,
+                          float max_image_x, float min_image_z,
+                          float max_image_z, uint16_t include_flag) {
+  // Convert SDK units to meters and SDK coordinates to ROS coordinates.
+  const float x = static_cast<float>(p.y) / 65536.0f;
+  const float y = -static_cast<float>(p.x) / 65536.0f;
+  const float z = static_cast<float>(p.z) / 65536.0f;
+
+  if ((~include_flag & p.flags) != 0)
+    return {x, y, z, false, "excluded_flags"};
+
+  const float distance_squared = x * x + y * y + z * z;
+  if (distance_squared >= 500.0f * 500.0f)
+    return {x, y, z, false, "distance_500m_or_more"};
+
+  const float tan_yx = y / x;
+  const float tan_zx = z / x;
+  const float min_distance_squared = min_distance * min_distance;
+  const float max_distance_squared = max_distance * max_distance;
+  if (tan_yx < min_image_x) return {x, y, z, false, "azimuth_below_min"};
+  if (tan_yx > max_image_x) return {x, y, z, false, "azimuth_above_max"};
+  if (tan_zx < min_image_z) return {x, y, z, false, "altitude_below_min"};
+  if (tan_zx > max_image_z) return {x, y, z, false, "altitude_above_max"};
+  if (distance_squared < min_distance_squared)
+    return {x, y, z, false, "distance_below_min"};
+  if (distance_squared > max_distance_squared)
+    return {x, y, z, false, "distance_above_max"};
+  return {x, y, z, true, "passed"};
+}
+
+void export_filter_csv(const std::string& output_directory,
+                       uint64_t frame_number, size_t n_points,
+                       const CeptonPointEx* points, float min_distance,
+                       float max_distance, float min_image_x,
+                       float max_image_x, float min_image_z,
+                       float max_image_z, uint16_t include_flag) {
+  std::ostringstream prefix;
+  prefix << output_directory << "/frame_" << std::setw(6)
+         << std::setfill('0') << frame_number;
+  std::ofstream passed(prefix.str() + "_passed.csv");
+  std::ofstream filtered(prefix.str() + "_filtered.csv");
+
+  if (!passed || !filtered) {
+    ROS_ERROR("Could not open CSV files for frame %lu",
+              static_cast<unsigned long>(frame_number));
+    return;
+  }
+
+  passed << "frame_number,point_index,x,y,z,flags,filter_reason\n";
+  filtered << "frame_number,point_index,x,y,z,flags,filter_reason\n";
+  passed << std::setprecision(9);
+  filtered << std::setprecision(9);
+
+  for (size_t i = 0; i < n_points; ++i) {
+    const auto result =
+        filter_point(points[i], min_distance, max_distance, min_image_x,
+                     max_image_x, min_image_z, max_image_z, include_flag);
+    auto& csv = result.passed ? passed : filtered;
+    csv << frame_number << ',' << i << ',' << result.x << ',' << result.y << ','
+        << result.z << ',' << points[i].flags << ',' << result.reason << '\n';
+  }
+}
+
 void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
                         size_t n_points, const CeptonPointEx* points,
                         bool reset_cloud, float min_distance, float max_distance,
                         float min_image_x, float max_image_x, float min_image_z,
                         float max_image_z, uint16_t include_flag) {
-  const auto max_distance_squared = max_distance * max_distance;
-  const auto min_distance_squared = min_distance * min_distance;
-
   if (reset_cloud) {
     // Reset
     cloud.clear();
@@ -395,39 +491,16 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cepton_ros::Point cp;
     auto const& p = points[i];
 
-    // If point has flags that should not be included (specified by the
-    // include_flag), continue
-    if ((~include_flag & p.flags) != 0) continue;
+    const auto result =
+        filter_point(p, min_distance, max_distance, min_image_x, max_image_x,
+                     min_image_z, max_image_z, include_flag);
+    if (!result.passed) continue;
 
-    // Convert the units to meters (SDK unit is 1.0 / 65536.0)
-    float x = static_cast<float>(p.x) / 65536.0;
-    float y = static_cast<float>(p.y) / 65536.0;
-    float z = static_cast<float>(p.z) / 65536.0;
-
-    // Convert the coordinates to ROS coordinates.
-    {
-      const auto tx = y;
-      const auto ty = -x;
-      const auto tz = z;
-      x = tx;
-      y = ty;
-      z = tz;
-    }
-
-    const float distance_squared = x * x + y * y + z * z;
-
-    // Filter out points that are labelled ambient but have invalid
-    // distance until point flag definitions are finalized (> 500m for
-    // now)
-    if (distance_squared >= 500 * 500) continue;
-
+    const float x = result.x;
+    const float y = result.y;
+    const float z = result.z;
     const float tan_yx = y / x;
     const float tan_zx = z / x;
-
-    if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z ||
-        tan_zx > max_image_z || distance_squared < min_distance_squared ||
-        distance_squared > max_distance_squared)
-      continue;
 
     cp.x = x;
     cp.y = y;
@@ -461,6 +534,14 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
   // Store the parity of each cloud. This may be used for 2-frames aggregation
   static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
+
+  ++frame_number_;
+  if (csv_export_interval_ > 0 &&
+      frame_number_ % csv_export_interval_ == 0) {
+    export_filter_csv(csv_output_directory_, frame_number_, n_points, points,
+                      min_distance_, max_distance_, min_image_x_, max_image_x_,
+                      min_image_z_, max_image_z_, include_flag_);
+  }
 
   // Update the sensor status
   {
