@@ -150,6 +150,7 @@ enum {
   CEPTON_POINT_NOISE = 1 << 6,
   CEPTON_POINT_BLOCKED = 1 << 7,
   CEPTON_POINT_RETRO = 1 << 8,
+  CEPTON_POINT_RETRO_WEAK = 1 << 9,
 };
 
 #pragma pack(push, 1)
