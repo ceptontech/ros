@@ -6,7 +6,6 @@
 #include <pluginlib/class_list_macros.h>
 
 #include <future>
-#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -166,33 +165,38 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
 
-  std::string mirror_sync_csv_path = "mirror_sync.csv";
-  private_node_handle_.param("mirror_sync_csv_path", mirror_sync_csv_path,
-                             mirror_sync_csv_path);
-  private_node_handle_.param("mirror_sync_interval_sec",
-                             mirror_sync_interval_sec_,
-                             mirror_sync_interval_sec_);
-  private_node_handle_.param("mirror_sync_duration_sec",
-                             mirror_sync_duration_sec_,
-                             mirror_sync_duration_sec_);
-  if (mirror_sync_interval_sec_ <= 0.0 || mirror_sync_duration_sec_ <= 0.0 ||
-      mirror_sync_duration_sec_ > mirror_sync_interval_sec_) {
-    ROS_WARN("Invalid mirror sync sampling period; using 1 second every 20 "
-             "seconds");
-    mirror_sync_interval_sec_ = 20.0;
-    mirror_sync_duration_sec_ = 1.0;
+  std::string timestamp_comparison_csv_path = "timestamp_comparison.csv";
+  private_node_handle_.param("timestamp_comparison_csv_path",
+                             timestamp_comparison_csv_path,
+                             timestamp_comparison_csv_path);
+  private_node_handle_.param("timestamp_comparison_interval_sec",
+                             timestamp_comparison_interval_sec_,
+                             timestamp_comparison_interval_sec_);
+  private_node_handle_.param("timestamp_comparison_duration_sec",
+                             timestamp_comparison_duration_sec_,
+                             timestamp_comparison_duration_sec_);
+  if (timestamp_comparison_interval_sec_ <= 0.0 ||
+      timestamp_comparison_duration_sec_ <= 0.0 ||
+      timestamp_comparison_duration_sec_ >
+          timestamp_comparison_interval_sec_) {
+    ROS_WARN("Invalid timestamp comparison sampling period; using 1 second "
+             "every 20 seconds");
+    timestamp_comparison_interval_sec_ = 20.0;
+    timestamp_comparison_duration_sec_ = 1.0;
   }
-  if (!mirror_sync_csv_path.empty()) {
-    mirror_sync_csv_.open(mirror_sync_csv_path, std::ios::out | std::ios::trunc);
-    if (mirror_sync_csv_) {
-      mirror_sync_csv_
+  if (!timestamp_comparison_csv_path.empty()) {
+    timestamp_comparison_csv_.open(timestamp_comparison_csv_path,
+                                   std::ios::out | std::ios::trunc);
+    if (timestamp_comparison_csv_) {
+      timestamp_comparison_csv_
           << "sensor_id,header_timestamp_sec,header_timestamp_nsec,"
-             "processing_timestamp_sec,processing_timestamp_nsec,azimuth\n";
-      mirror_sync_start_time_ = std::chrono::steady_clock::now();
-      ROS_INFO("mirror sync CSV: %s", mirror_sync_csv_path.c_str());
+             "os_timestamp_sec,os_timestamp_nsec\n";
+      timestamp_comparison_start_time_ = std::chrono::steady_clock::now();
+      ROS_INFO("timestamp comparison CSV: %s",
+               timestamp_comparison_csv_path.c_str());
     } else {
-      ROS_ERROR("Failed to open mirror sync CSV: %s",
-                mirror_sync_csv_path.c_str());
+      ROS_ERROR("Failed to open timestamp comparison CSV: %s",
+                timestamp_comparison_csv_path.c_str());
     }
   }
 
@@ -528,9 +532,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     return;
   }
 
-#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
-  write_mirror_sync_csv(handle, clouds[handle]);
-#endif
+  write_timestamp_comparison_csv(handle, clouds[handle]);
 
   // Publish the point cloud
   {
@@ -556,17 +558,16 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
   }
 }
 
-#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
-void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
-                                             const Cloud& cloud) {
-  if (!mirror_sync_csv_) return;
+void PublisherNodelet::write_timestamp_comparison_csv(
+    CeptonSensorHandle handle, const Cloud& cloud) {
+  if (!timestamp_comparison_csv_) return;
 
   const auto elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                    mirror_sync_start_time_)
+                                    timestamp_comparison_start_time_)
           .count();
-  if (std::fmod(elapsed, mirror_sync_interval_sec_) >=
-      mirror_sync_duration_sec_)
+  if (std::fmod(elapsed, timestamp_comparison_interval_sec_) >=
+      timestamp_comparison_duration_sec_)
     return;
 
   uint32_t sensor_id = 0;
@@ -581,20 +582,18 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
   const uint64_t header_timestamp_sec = cloud.header.stamp / 1000000ULL;
   const uint64_t header_timestamp_nsec =
       (cloud.header.stamp % 1000000ULL) * 1000ULL;
-  const ros::Time processing_timestamp = ros::Time::now();
+  const auto os_timestamp_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  const int64_t os_timestamp_sec = os_timestamp_ns / 1000000000LL;
+  const int64_t os_timestamp_nsec = os_timestamp_ns % 1000000000LL;
 
-  std::lock_guard<std::mutex> lock(mirror_sync_csv_lock_);
-  mirror_sync_csv_ << std::setprecision(9);
-  for (const auto& point : cloud.points) {
-    if (point.channel_id != 200) continue;
-    mirror_sync_csv_ << sensor_id << ',' << header_timestamp_sec << ','
-                     << header_timestamp_nsec << ','
-                     << processing_timestamp.sec << ','
-                     << processing_timestamp.nsec << ',' << point.azimuth
-                     << '\n';
-  }
+  std::lock_guard<std::mutex> lock(timestamp_comparison_csv_lock_);
+  timestamp_comparison_csv_ << sensor_id << ',' << header_timestamp_sec << ','
+                            << header_timestamp_nsec << ',' << os_timestamp_sec
+                            << ',' << os_timestamp_nsec << '\n';
 }
-#endif
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   {

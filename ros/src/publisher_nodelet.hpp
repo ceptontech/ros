@@ -151,9 +151,8 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   void publish_async(CeptonSensorHandle handle);
 
-#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
-  void write_mirror_sync_csv(CeptonSensorHandle handle, const Cloud& cloud);
-#endif
+  void write_timestamp_comparison_csv(CeptonSensorHandle handle,
+                                      const Cloud& cloud);
 
   std::mutex status_lock_;
 
@@ -166,12 +165,12 @@ class PublisherNodelet : public nodelet::Nodelet {
   /** Store the handle to serial number mappings */
   SerialNumberMap handle_to_serial_number_;
 
-  /** Periodically sampled CSV used to inspect mirror synchronization. */
-  std::ofstream mirror_sync_csv_;
-  std::mutex mirror_sync_csv_lock_;
-  std::chrono::steady_clock::time_point mirror_sync_start_time_;
-  double mirror_sync_interval_sec_{20.0};
-  double mirror_sync_duration_sec_{1.0};
+  /** Periodically sampled comparison of point-cloud and OS timestamps. */
+  std::ofstream timestamp_comparison_csv_;
+  std::mutex timestamp_comparison_csv_lock_;
+  std::chrono::steady_clock::time_point timestamp_comparison_start_time_;
+  double timestamp_comparison_interval_sec_{20.0};
+  double timestamp_comparison_duration_sec_{1.0};
 
   bool stopping_{false};
 };
