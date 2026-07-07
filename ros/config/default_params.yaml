@@ -19,6 +19,9 @@ max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
 aggregate_frames: false
+mirror_sync_csv_path: "mirror_sync.csv" # Empty string disables CSV output. Azimuth is in radians.
+mirror_sync_interval_sec: 20.0
+mirror_sync_duration_sec: 1.0
 
 # In ROS, unlike in ROS2, this needs to be set to an empty
 # list if not using the expected lidars feature.

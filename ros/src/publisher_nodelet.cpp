@@ -6,6 +6,7 @@
 #include <pluginlib/class_list_macros.h>
 
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -164,6 +165,36 @@ void PublisherNodelet::onInit() {
 
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
+
+  std::string mirror_sync_csv_path = "mirror_sync.csv";
+  private_node_handle_.param("mirror_sync_csv_path", mirror_sync_csv_path,
+                             mirror_sync_csv_path);
+  private_node_handle_.param("mirror_sync_interval_sec",
+                             mirror_sync_interval_sec_,
+                             mirror_sync_interval_sec_);
+  private_node_handle_.param("mirror_sync_duration_sec",
+                             mirror_sync_duration_sec_,
+                             mirror_sync_duration_sec_);
+  if (mirror_sync_interval_sec_ <= 0.0 || mirror_sync_duration_sec_ <= 0.0 ||
+      mirror_sync_duration_sec_ > mirror_sync_interval_sec_) {
+    ROS_WARN("Invalid mirror sync sampling period; using 1 second every 20 "
+             "seconds");
+    mirror_sync_interval_sec_ = 20.0;
+    mirror_sync_duration_sec_ = 1.0;
+  }
+  if (!mirror_sync_csv_path.empty()) {
+    mirror_sync_csv_.open(mirror_sync_csv_path, std::ios::out | std::ios::trunc);
+    if (mirror_sync_csv_) {
+      mirror_sync_csv_
+          << "sensor_id,header_timestamp_sec,header_timestamp_nsec,"
+             "processing_timestamp_sec,processing_timestamp_nsec,azimuth\n";
+      mirror_sync_start_time_ = std::chrono::steady_clock::now();
+      ROS_INFO("mirror sync CSV: %s", mirror_sync_csv_path.c_str());
+    } else {
+      ROS_ERROR("Failed to open mirror sync CSV: %s",
+                mirror_sync_csv_path.c_str());
+    }
+  }
 
   // Check for which points should be included based on params for flag bits
   {
@@ -497,6 +528,10 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     return;
   }
 
+#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
+  write_mirror_sync_csv(handle, clouds[handle]);
+#endif
+
   // Publish the point cloud
   {
     // If the last publish is still pending, wait for it to finish
@@ -520,6 +555,46 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
         });
   }
 }
+
+#if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
+void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
+                                             const Cloud& cloud) {
+  if (!mirror_sync_csv_) return;
+
+  const auto elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                    mirror_sync_start_time_)
+          .count();
+  if (std::fmod(elapsed, mirror_sync_interval_sec_) >=
+      mirror_sync_duration_sec_)
+    return;
+
+  uint32_t sensor_id = 0;
+  {
+    std::lock_guard<std::mutex> lock(status_lock_);
+    const auto it = handle_to_serial_number_.find(handle);
+    if (it == handle_to_serial_number_.end()) return;
+    sensor_id = it->second;
+  }
+
+  // pcl::PCLHeader::stamp is expressed in microseconds.
+  const uint64_t header_timestamp_sec = cloud.header.stamp / 1000000ULL;
+  const uint64_t header_timestamp_nsec =
+      (cloud.header.stamp % 1000000ULL) * 1000ULL;
+  const ros::Time processing_timestamp = ros::Time::now();
+
+  std::lock_guard<std::mutex> lock(mirror_sync_csv_lock_);
+  mirror_sync_csv_ << std::setprecision(9);
+  for (const auto& point : cloud.points) {
+    if (point.channel_id != 200) continue;
+    mirror_sync_csv_ << sensor_id << ',' << header_timestamp_sec << ','
+                     << header_timestamp_nsec << ','
+                     << processing_timestamp.sec << ','
+                     << processing_timestamp.nsec << ',' << point.azimuth
+                     << '\n';
+  }
+}
+#endif
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   {
