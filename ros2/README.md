@@ -1,4 +1,30 @@
-# Cepton ROS Publisher Configuration Guide
+# Basic Usage
+#### Build
+```bash
+# Configure your terminal's environment
+# Change the distro name if needed
+source /opt/ros/jazzy/setup.bash
+
+cd ros/ros2
+colcon build
+```
+
+#### Run
+```bash
+# This is needed for each terminal you open
+source /opt/ros/jazzy/setup.bash
+source ros/ros2/install/setup.bash
+
+# Launch CeptonPublisher with default settings
+ros2 run cepton_publisher cepton_publisher_node
+
+# View the point cloud on RViz2
+# On another terminal, run
+rviz2 rviz2 -d ros/cepton_ros2.rviz
+```
+
+
+# CeptonPublisher Configuration Guide
 
 This guide covers all configuration options available for the Cepton ROS Publisher based on the implementation in `cepton_publisher.cpp`.
 
