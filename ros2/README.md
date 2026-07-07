@@ -1,5 +1,11 @@
-# Basic Usage
-#### Build
+# Prerequisites
+### Supported Platforms
+- Ubuntu 20.04 LTS `amd64`/`arm64` + ROS 2 Galactic Geochelone
+- Ubuntu 22.04 LTS `amd64`/`arm64` + ROS 2 Humble Hawksbill
+- Ubuntu 24.04 LTS `amd64`/`arm64` + ROS 2 Jazzy Jalisco
+
+# Basic usage
+### Build
 ```bash
 # Configure your terminal's environment
 # Change the distro name if needed
@@ -9,7 +15,7 @@ cd ros/ros2
 colcon build
 ```
 
-#### Run
+### Run
 ```bash
 # This is needed for each terminal you open
 source /opt/ros/jazzy/setup.bash
