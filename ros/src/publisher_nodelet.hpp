@@ -147,7 +147,7 @@ class PublisherNodelet : public nodelet::Nodelet {
   uint64_t csv_export_interval_{100};
 
   /** Directory in which validation CSV files are created. */
-  std::string csv_output_directory_{"/home/koito/Desktop/cepton_csv"};
+  std::string csv_output_directory_{"/home/koito/デスクトップ/cepton_csv"};
 
   /** Number of SDK frames received. */
   uint64_t frame_number_{0};

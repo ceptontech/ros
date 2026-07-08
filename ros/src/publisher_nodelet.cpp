@@ -419,8 +419,8 @@ FilterResult filter_point(const CeptonPointEx& p, float min_distance,
     return {x, y, z, false, "excluded_flags"};
 
   const float distance_squared = x * x + y * y + z * z;
-  if (distance_squared >= 500.0f * 500.0f)
-    return {x, y, z, false, "distance_500m_or_more"};
+  //if (distance_squared >= 500.0f * 500.0f)
+    //return {x, y, z, false, "distance_500m_or_more"};
 
   const float tan_yx = y / x;
   const float tan_zx = z / x;
