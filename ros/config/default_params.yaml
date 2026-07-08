@@ -20,7 +20,7 @@ min_distance: 0.0
 max_distance: 1000.0
 aggregate_frames: false
 timestamp_mode: delta # delta, frame_offset, absolute
-mirror_sync_csv_path: "mirror_sync.csv" # Empty string disables CSV output. Azimuth is in radians.
+mirror_sync_csv_path: "mirror_sync.csv" # Creates mirror_sync_000001.csv, etc. Empty string disables output. Azimuth is in radians.
 mirror_sync_interval_sec: 20.0 # Start a measurement every 20 seconds.
 mirror_sync_duration_sec: 1.0 # Record for one second in each interval.
 

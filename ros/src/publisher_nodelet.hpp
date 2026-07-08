@@ -172,6 +172,8 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   /** CSV used to inspect mirror synchronization at channel 200. */
   std::ofstream mirror_sync_csv_;
+  std::string mirror_sync_csv_path_;
+  uint64_t mirror_sync_window_index_{std::numeric_limits<uint64_t>::max()};
   std::mutex mirror_sync_csv_lock_;
   std::chrono::steady_clock::time_point mirror_sync_start_time_;
   double mirror_sync_interval_sec_{20.0};

@@ -10,6 +10,7 @@
 #include <future>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,21 @@ RelativeTimestampMode parse_timestamp_mode(const std::string& mode) {
   if (mode == "absolute") return RelativeTimestampMode::Absolute;
   ROS_WARN("Unknown timestamp_mode '%s'; using frame_offset", mode.c_str());
   return RelativeTimestampMode::FrameOffset;
+}
+
+std::string make_mirror_sync_csv_path(const std::string& base_path,
+                                      uint64_t sequence) {
+  const auto slash = base_path.find_last_of("/\\");
+  const auto dot = base_path.find_last_of('.');
+  const bool has_extension =
+      dot != std::string::npos && (slash == std::string::npos || dot > slash);
+  const auto stem = has_extension ? base_path.substr(0, dot) : base_path;
+  const auto extension = has_extension ? base_path.substr(dot) : ".csv";
+
+  std::ostringstream path;
+  path << stem << '_' << std::setfill('0') << std::setw(6) << sequence
+       << extension;
+  return path.str();
 }
 
 ros::Publisher advertise_points(ros::NodeHandle& node_handle,
@@ -201,9 +217,9 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
 
-  std::string mirror_sync_csv_path = "mirror_sync.csv";
-  private_node_handle_.param("mirror_sync_csv_path", mirror_sync_csv_path,
-                             mirror_sync_csv_path);
+  mirror_sync_csv_path_ = "mirror_sync.csv";
+  private_node_handle_.param("mirror_sync_csv_path", mirror_sync_csv_path_,
+                             mirror_sync_csv_path_);
   private_node_handle_.param("mirror_sync_interval_sec",
                              mirror_sync_interval_sec_,
                              mirror_sync_interval_sec_);
@@ -219,19 +235,12 @@ void PublisherNodelet::onInit() {
     mirror_sync_duration_sec_ = 1.0;
   }
 
-  if (!mirror_sync_csv_path.empty()) {
-    mirror_sync_csv_.open(mirror_sync_csv_path, std::ios::out | std::ios::trunc);
-    if (mirror_sync_csv_) {
-      mirror_sync_csv_
-          << "sensor_id,timestamp_sec,timestamp_nsec,azimuth\n";
-      mirror_sync_start_time_ = std::chrono::steady_clock::now();
-      ROS_INFO("mirror sync CSV: %s", mirror_sync_csv_path.c_str());
-      ROS_INFO("mirror sync sampling: %.3f seconds every %.3f seconds",
-               mirror_sync_duration_sec_, mirror_sync_interval_sec_);
-    } else {
-      ROS_ERROR("Failed to open mirror sync CSV: %s",
-                mirror_sync_csv_path.c_str());
-    }
+  if (!mirror_sync_csv_path_.empty()) {
+    mirror_sync_start_time_ = std::chrono::steady_clock::now();
+    ROS_INFO("mirror sync CSV base path: %s", mirror_sync_csv_path_.c_str());
+    ROS_INFO("mirror sync sampling: one CSV per %.3f-second measurement, "
+             "every %.3f seconds",
+             mirror_sync_duration_sec_, mirror_sync_interval_sec_);
   }
 
 #ifdef WITH_TS_CH_F
@@ -695,15 +704,21 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 #if defined(WITH_TS_CH_F) && defined(WITH_POLAR)
 void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
                                              const CloudAbsolute& cloud) {
-  if (!mirror_sync_csv_) return;
+  if (mirror_sync_csv_path_.empty()) return;
 
   const auto elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     mirror_sync_start_time_)
           .count();
+  const auto window_index =
+      static_cast<uint64_t>(elapsed / mirror_sync_interval_sec_);
   if (std::fmod(elapsed, mirror_sync_interval_sec_) >=
-      mirror_sync_duration_sec_)
+      mirror_sync_duration_sec_) {
+    std::lock_guard<std::mutex> lock(mirror_sync_csv_lock_);
+    if (window_index == mirror_sync_window_index_ && mirror_sync_csv_.is_open())
+      mirror_sync_csv_.close();
     return;
+  }
 
   uint32_t sensor_id = 0;
   {
@@ -720,12 +735,29 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
   }
 
   std::lock_guard<std::mutex> lock(mirror_sync_csv_lock_);
+  if (window_index != mirror_sync_window_index_) {
+    mirror_sync_csv_.close();
+    mirror_sync_csv_.clear();
+    mirror_sync_window_index_ = window_index;
+    const auto path =
+        make_mirror_sync_csv_path(mirror_sync_csv_path_, window_index + 1);
+    mirror_sync_csv_.open(path, std::ios::out | std::ios::trunc);
+    if (!mirror_sync_csv_) {
+      ROS_ERROR("Failed to open mirror sync CSV: %s", path.c_str());
+      return;
+    }
+    mirror_sync_csv_ << "sensor_id,timestamp_sec,timestamp_nsec,azimuth\n";
+    ROS_INFO("mirror sync CSV: %s", path.c_str());
+  }
+  if (!mirror_sync_csv_) return;
+
   mirror_sync_csv_ << std::setprecision(9);
   for (const auto& point : cloud.points) {
     if (point.channel_id != 200) continue;
     mirror_sync_csv_ << sensor_id << ',' << point.timestamp_sec << ','
-                     << point.timestamp_nsec << ',' << point.azimuth << '\n';
+                      << point.timestamp_nsec << ',' << point.azimuth << '\n';
   }
+  mirror_sync_csv_.flush();
 }
 #endif
 
