@@ -721,6 +721,7 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
   }
 
   uint32_t sensor_id = 0;
+  int64_t time_sync_offset = 0;
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     const auto it = handle_to_serial_number_.find(handle);
@@ -732,6 +733,9 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
       return;
     }
     sensor_id = it->second;
+    const auto offset_it = handle_to_time_sync_offset_.find(handle);
+    if (offset_it != handle_to_time_sync_offset_.end())
+      time_sync_offset = offset_it->second;
   }
 
   std::lock_guard<std::mutex> lock(mirror_sync_csv_lock_);
@@ -754,8 +758,14 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
   mirror_sync_csv_ << std::setprecision(9);
   for (const auto& point : cloud.points) {
     if (point.channel_id != 200) continue;
-    mirror_sync_csv_ << sensor_id << ',' << point.timestamp_sec << ','
-                      << point.timestamp_nsec << ',' << point.azimuth << '\n';
+    const int64_t timestamp_us =
+        static_cast<int64_t>(point.timestamp_sec) * 1000000LL +
+        static_cast<int64_t>(point.timestamp_nsec) / 1000LL + time_sync_offset;
+    if (timestamp_us < 0) continue;
+    const auto timestamp_sec = timestamp_us / 1000000LL;
+    const auto timestamp_nsec = (timestamp_us % 1000000LL) * 1000LL;
+    mirror_sync_csv_ << sensor_id << ',' << timestamp_sec << ','
+                      << timestamp_nsec << ',' << point.azimuth << '\n';
   }
   mirror_sync_csv_.flush();
 }
@@ -765,6 +775,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
+    handle_to_time_sync_offset_[info->handle] = info->time_sync_offset;
   }
 
   // Create a points publisher by handle

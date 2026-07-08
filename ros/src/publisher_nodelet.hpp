@@ -41,6 +41,7 @@ class PublisherNodelet : public nodelet::Nodelet {
       std::unordered_map<CeptonSensorHandle,
                          std::chrono::time_point<std::chrono::system_clock>>;
   using SerialNumberMap = std::unordered_map<CeptonSensorHandle, uint32_t>;
+  using TimeSyncOffsetMap = std::unordered_map<CeptonSensorHandle, int64_t>;
 
  public:
   ~PublisherNodelet();
@@ -169,6 +170,9 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   /** Store the handle to serial number mappings */
   SerialNumberMap handle_to_serial_number_;
+
+  /** PTP time synchronization offset in microseconds, indexed by handle. */
+  TimeSyncOffsetMap handle_to_time_sync_offset_;
 
   /** CSV used to inspect mirror synchronization at channel 200. */
   std::ofstream mirror_sync_csv_;
