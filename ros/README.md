@@ -2,40 +2,6 @@
 ### Supported Platforms
 - Ubuntu 20.04 LTS `amd64`/`arm64` + ROS Noetic Ninjemys
 
-# Basic usage
-### Build
-```bash
-# Configure your terminal's environment
-source /opt/ros/noetic/setup.bash
-
-# Set up a catkin workspace and symlink the repo
-mkdir -p catkin_ws/src
-cd catkin_ws/src
-ln -s $(pwd)/../../ros/ros
-
-cd ..
-catkin_make
-```
-
-### Run
-```bash
-# This is needed for each terminal you open
-source /opt/ros/noetic/setup.bash
-source catkin_ws/devel/setup.bash
-
-# Launch the nodelet manager
-# This is needed before launching the publisher
-roslaunch cepton_ros manager.launch
-
-# On another terminal, launch CeptonPublisher
-roslaunch cepton_ros publisher.launch
-
-# View the point cloud on RViz
-# On another terminal, run
-rviz -d ros/cepton_ros.rviz
-```
-
-
 # Cepton ROS Publisher Nodelet Configuration Guide
 
 This guide covers all configuration options available for the Cepton ROS Publisher Nodelet based on the implementation in `publisher_nodelet.cpp`.

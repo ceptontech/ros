@@ -67,5 +67,6 @@
         "variant": "cpp",
         "format": "cpp",
         "future": "cpp"
-    }
+    },
+    "C_Cpp.clang_format_style": "none"
 }

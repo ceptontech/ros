@@ -416,10 +416,8 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
 
     const float distance_squared = x * x + y * y + z * z;
 
-    // Filter out points that are labelled ambient but have invalid
-    // distance until point flag definitions are finalized (> 500m for
-    // now)
-    if (distance_squared >= 500 * 500) continue;
+    // This filter is disabled because this is not used
+    // if (distance_squared >= 500 * 500) continue;
 
     const float tan_yx = y / x;
     const float tan_zx = z / x;
