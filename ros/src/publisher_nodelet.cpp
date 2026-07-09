@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <pluginlib/class_list_macros.h>
 
+#include <bitset>
 #include <future>
 #include <iostream>
 #include <string>
@@ -397,7 +398,17 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
-    if ((~include_flag & p.flags) != 0) continue;
+    const uint16_t rejected_bits = ~include_flag & p.flags;
+    if (rejected_bits != 0) {
+      // TEMP DEBUG: print the first few distinct rejected-bit patterns seen,
+      // to identify which flag(s) are causing points to be dropped even
+      // though every include_* option is enabled. Remove after diagnosis.
+      ROS_INFO_STREAM_THROTTLE(
+          1.0, "[DEBUG flags] p.flags=0b" << std::bitset<16>(p.flags)
+                                         << " rejected_bits=0b"
+                                         << std::bitset<16>(rejected_bits));
+      continue;
+    }
 
     // Convert the units to meters (SDK unit is 1.0 / 65536.0)
     float x = static_cast<float>(p.x) / 65536.0;
