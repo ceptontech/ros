@@ -167,10 +167,12 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   /** Periodically sampled comparison of point-cloud and OS timestamps. */
   std::ofstream timestamp_comparison_csv_;
+  std::string timestamp_comparison_csv_path_;
   std::mutex timestamp_comparison_csv_lock_;
   std::chrono::steady_clock::time_point timestamp_comparison_start_time_;
   double timestamp_comparison_interval_sec_{20.0};
   double timestamp_comparison_duration_sec_{1.0};
+  int64_t timestamp_comparison_active_interval_index_{-1};
 
   bool stopping_{false};
 };

@@ -19,7 +19,7 @@ max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
 aggregate_frames: false
-timestamp_comparison_csv_path: "timestamp_comparison.csv" # Empty string disables CSV output.
+timestamp_comparison_csv_path: "timestamp_comparison.csv" # Empty string disables CSV output. Each sampled window is written as timestamp_comparison_000000.csv, etc.
 timestamp_comparison_interval_sec: 20.0
 timestamp_comparison_duration_sec: 1.0
 

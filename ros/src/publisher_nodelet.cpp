@@ -6,7 +6,9 @@
 #include <pluginlib/class_list_macros.h>
 
 #include <future>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -58,6 +60,24 @@ bool parse_network_source(const std::string& source_str, std::string& ip,
   }
 
   return true;
+}
+
+std::string make_timestamp_comparison_csv_path(const std::string& base_path,
+                                               int64_t interval_index) {
+  const auto slash_pos = base_path.find_last_of("/\\");
+  const auto dot_pos = base_path.find_last_of('.');
+  const bool has_extension =
+      dot_pos != std::string::npos &&
+      (slash_pos == std::string::npos || dot_pos > slash_pos);
+
+  const auto stem =
+      has_extension ? base_path.substr(0, dot_pos) : base_path;
+  const auto extension = has_extension ? base_path.substr(dot_pos) : ".csv";
+
+  std::ostringstream stream;
+  stream << stem << '_' << std::setw(6) << std::setfill('0') << interval_index
+         << extension;
+  return stream.str();
 }
 
 namespace cepton_ros {
@@ -165,10 +185,10 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
 
-  std::string timestamp_comparison_csv_path = "timestamp_comparison.csv";
+  timestamp_comparison_csv_path_ = "timestamp_comparison.csv";
   private_node_handle_.param("timestamp_comparison_csv_path",
-                             timestamp_comparison_csv_path,
-                             timestamp_comparison_csv_path);
+                             timestamp_comparison_csv_path_,
+                             timestamp_comparison_csv_path_);
   private_node_handle_.param("timestamp_comparison_interval_sec",
                              timestamp_comparison_interval_sec_,
                              timestamp_comparison_interval_sec_);
@@ -184,20 +204,10 @@ void PublisherNodelet::onInit() {
     timestamp_comparison_interval_sec_ = 20.0;
     timestamp_comparison_duration_sec_ = 1.0;
   }
-  if (!timestamp_comparison_csv_path.empty()) {
-    timestamp_comparison_csv_.open(timestamp_comparison_csv_path,
-                                   std::ios::out | std::ios::trunc);
-    if (timestamp_comparison_csv_) {
-      timestamp_comparison_csv_
-          << "sensor_id,header_timestamp_sec,header_timestamp_nsec,"
-             "os_timestamp_sec,os_timestamp_nsec\n";
-      timestamp_comparison_start_time_ = std::chrono::steady_clock::now();
-      ROS_INFO("timestamp comparison CSV: %s",
-               timestamp_comparison_csv_path.c_str());
-    } else {
-      ROS_ERROR("Failed to open timestamp comparison CSV: %s",
-                timestamp_comparison_csv_path.c_str());
-    }
+  timestamp_comparison_start_time_ = std::chrono::steady_clock::now();
+  if (!timestamp_comparison_csv_path_.empty()) {
+    ROS_INFO("timestamp comparison CSV base path: %s",
+             timestamp_comparison_csv_path_.c_str());
   }
 
   // Check for which points should be included based on params for flag bits
@@ -560,22 +570,32 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
 
 void PublisherNodelet::write_timestamp_comparison_csv(
     CeptonSensorHandle handle, const Cloud& cloud) {
-  if (!timestamp_comparison_csv_) return;
+  if (timestamp_comparison_csv_path_.empty()) return;
 
   const auto elapsed =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     timestamp_comparison_start_time_)
           .count();
-  if (std::fmod(elapsed, timestamp_comparison_interval_sec_) >=
-      timestamp_comparison_duration_sec_)
+  const int64_t interval_index =
+      static_cast<int64_t>(elapsed / timestamp_comparison_interval_sec_);
+  const double interval_elapsed =
+      elapsed - interval_index * timestamp_comparison_interval_sec_;
+  if (interval_elapsed >= timestamp_comparison_duration_sec_) {
+    std::lock_guard<std::mutex> lock(timestamp_comparison_csv_lock_);
+    if (timestamp_comparison_csv_) {
+      timestamp_comparison_csv_.close();
+    }
+    timestamp_comparison_active_interval_index_ = -1;
     return;
+  }
 
-  uint32_t sensor_id = 0;
+  uint32_t sensor_serial_number = 0;
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     const auto it = handle_to_serial_number_.find(handle);
-    if (it == handle_to_serial_number_.end()) return;
-    sensor_id = it->second;
+    if (it != handle_to_serial_number_.end()) {
+      sensor_serial_number = it->second;
+    }
   }
 
   // pcl::PCLHeader::stamp is expressed in microseconds.
@@ -590,9 +610,34 @@ void PublisherNodelet::write_timestamp_comparison_csv(
   const int64_t os_timestamp_nsec = os_timestamp_ns % 1000000000LL;
 
   std::lock_guard<std::mutex> lock(timestamp_comparison_csv_lock_);
-  timestamp_comparison_csv_ << sensor_id << ',' << header_timestamp_sec << ','
+  if (timestamp_comparison_active_interval_index_ != interval_index) {
+    if (timestamp_comparison_csv_) {
+      timestamp_comparison_csv_.close();
+    }
+
+    const auto csv_path = make_timestamp_comparison_csv_path(
+        timestamp_comparison_csv_path_, interval_index);
+    timestamp_comparison_csv_.open(csv_path, std::ios::out | std::ios::trunc);
+    if (!timestamp_comparison_csv_) {
+      ROS_ERROR("Failed to open timestamp comparison CSV: %s",
+                csv_path.c_str());
+      timestamp_comparison_active_interval_index_ = -1;
+      return;
+    }
+
+    timestamp_comparison_active_interval_index_ = interval_index;
+    timestamp_comparison_csv_
+        << "sensor_handle,sensor_serial_number,header_timestamp_sec,"
+           "header_timestamp_nsec,"
+           "os_timestamp_sec,os_timestamp_nsec\n";
+    ROS_INFO("timestamp comparison CSV: %s", csv_path.c_str());
+  }
+
+  timestamp_comparison_csv_ << handle << ',' << sensor_serial_number << ','
+                            << header_timestamp_sec << ','
                             << header_timestamp_nsec << ',' << os_timestamp_sec
                             << ',' << os_timestamp_nsec << '\n';
+  timestamp_comparison_csv_.flush();
 }
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
