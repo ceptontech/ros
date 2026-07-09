@@ -641,10 +641,18 @@ def percentile(sorted_vals, q):
 
 
 def _series_stats(vals):
+    n = len(vals)
+    mean = (sum(vals) / n) if n else None
+    if n:
+        variance = sum((v - mean) ** 2 for v in vals) / n
+        std = variance ** 0.5
+    else:
+        std = None
     return {
         "min": min(vals) if vals else None,
         "max": max(vals) if vals else None,
-        "mean": (sum(vals) / len(vals)) if vals else None,
+        "mean": mean,
+        "std": std,
     }
 
 
@@ -1051,13 +1059,14 @@ def print_report(summary):
             fd = s["frame_drop_%s" % b]
             inst, win, dts = r["instantaneous"], r["windowed"], r["dt_stats"]
             star = "*" if b == basis else " "
-            print("   %s %-7s inst : %s  (out=%d/%d min=%s max=%s mean=%s)" % (
+            print("   %s %-7s inst : %s  (out=%d/%d min=%s max=%s mean=%s std=%s)" % (
                 star, b, _pf(inst["pass"]), inst["out_of_range"],
                 inst["samples"], _fmt(inst["min"]), _fmt(inst["max"]),
-                _fmt(inst["mean"])))
-            print("   %s %-7s win  : %s  (out=%d/%d min=%s max=%s)" % (
+                _fmt(inst["mean"]), _fmt(inst["std"])))
+            print("   %s %-7s win  : %s  (out=%d/%d min=%s max=%s mean=%s std=%s)" % (
                 star, b, _pf(win["pass"]), win["out_of_range"], win["samples"],
-                _fmt(win["min"]), _fmt(win["max"])))
+                _fmt(win["min"]), _fmt(win["max"]), _fmt(win["mean"]),
+                _fmt(win["std"])))
             print("   %s %-7s drop : %s  (gaps=%d missing≈%d)" % (
                 star, b, _pf(fd["pass"]), fd["gap_events"],
                 fd["estimated_missing_frames"]))
@@ -1148,8 +1157,8 @@ def parse_args():
                         "through. Default is to enable all include_* flags and "
                         "open the distance/angle filters so the per-frame "
                         "width can be checked against the SDK nominal.")
-    p.add_argument("--warmup", type=float, default=3.0,
-                   help="Seconds excluded from evaluation after start (default: 3.0)")
+    p.add_argument("--warmup", type=float, default=5.0,
+                   help="Seconds excluded from evaluation after start (default: 5.0)")
     p.add_argument("--drop-factor", type=float, default=1.5,
                    help="Interval > factor*period counts as a frame drop (default: 1.5)")
     p.add_argument("--mem-growth-threshold", type=float, default=1.0,
