@@ -590,18 +590,26 @@ void PublisherNodelet::write_timestamp_comparison_csv(
   }
 
   uint32_t sensor_serial_number = 0;
+  int64_t time_sync_offset = 0;
   {
     std::lock_guard<std::mutex> lock(status_lock_);
-    const auto it = handle_to_serial_number_.find(handle);
-    if (it != handle_to_serial_number_.end()) {
-      sensor_serial_number = it->second;
+    const auto serial_number_it = handle_to_serial_number_.find(handle);
+    if (serial_number_it != handle_to_serial_number_.end()) {
+      sensor_serial_number = serial_number_it->second;
+    }
+    const auto time_sync_offset_it = handle_to_time_sync_offset_.find(handle);
+    if (time_sync_offset_it != handle_to_time_sync_offset_.end()) {
+      time_sync_offset = time_sync_offset_it->second;
     }
   }
 
-  // pcl::PCLHeader::stamp is expressed in microseconds.
-  const uint64_t header_timestamp_sec = cloud.header.stamp / 1000000ULL;
-  const uint64_t header_timestamp_nsec =
-      (cloud.header.stamp % 1000000ULL) * 1000ULL;
+  // pcl::PCLHeader::stamp and CeptonSensor::time_sync_offset are expressed in
+  // microseconds.
+  const int64_t synced_header_timestamp =
+      static_cast<int64_t>(cloud.header.stamp) + time_sync_offset;
+  const int64_t header_timestamp_sec = synced_header_timestamp / 1000000LL;
+  const int64_t header_timestamp_nsec =
+      (synced_header_timestamp % 1000000LL) * 1000LL;
   const auto os_timestamp_ns =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::system_clock::now().time_since_epoch())
@@ -627,13 +635,14 @@ void PublisherNodelet::write_timestamp_comparison_csv(
 
     timestamp_comparison_active_interval_index_ = interval_index;
     timestamp_comparison_csv_
-        << "sensor_handle,sensor_serial_number,header_timestamp_sec,"
-           "header_timestamp_nsec,"
+        << "sensor_handle,sensor_serial_number,time_sync_offset_usec,"
+           "header_timestamp_sec,header_timestamp_nsec,"
            "os_timestamp_sec,os_timestamp_nsec\n";
     ROS_INFO("timestamp comparison CSV: %s", csv_path.c_str());
   }
 
   timestamp_comparison_csv_ << handle << ',' << sensor_serial_number << ','
+                            << time_sync_offset << ','
                             << header_timestamp_sec << ','
                             << header_timestamp_nsec << ',' << os_timestamp_sec
                             << ',' << os_timestamp_nsec << '\n';
@@ -644,6 +653,9 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
+    if (info->time_sync_offset != 0) {
+      handle_to_time_sync_offset_[info->handle] = info->time_sync_offset;
+    }
   }
 
   // Create a points publisher by handle
