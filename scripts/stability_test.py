@@ -786,7 +786,16 @@ def evaluate_sensor(sd, nominal_hz, inst_tol, win_tol, window, warmup,
     return result
 
 
-def evaluate_resources(samples, mem_thresh, cpu_thresh):
+def evaluate_resources(samples, mem_thresh, cpu_thresh, warmup=0.0):
+    """Growth analysis of RSS/CPU samples, excluding the startup warmup window.
+
+    `samples` are (t_rel_sec, rss_mb, cpu_percent) tuples with t_rel_sec
+    measured from when the resource monitor started (i.e. from process
+    launch), matching the same warmup convention used for the rate/drop
+    evaluation so that startup transients (allocation, connection setup)
+    don't get counted as a leak trend.
+    """
+    samples = [s for s in samples if s[0] >= warmup]
     ts = [s[0] for s in samples]
     rss = [s[1] for s in samples]
     cpu = [s[2] for s in samples if s[2] is not None]
@@ -938,36 +947,49 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     fig.savefig(out_dir / "jitter.png", dpi=120)
     plt.close(fig)
 
-    # --- CPU over time. ---
+    # --- CPU over time. Trend/growth stats exclude the warmup window (as does
+    # evaluate_resources), so the regression is drawn only over that range;
+    # the full series is still plotted so startup transients remain visible. ---
     cpu_pts = [(t, c) for t, _r, c in samples if c is not None]
     fig, ax = plt.subplots(figsize=(11, 4))
     if cpu_pts:
         ax.plot([p[0] for p in cpu_pts], [p[1] for p in cpu_pts],
                 linewidth=1.0, color=SENSOR_COLORS[0], label="CPU")
+    if warmup > 0:
+        ax.axvspan(0, warmup, color="0.9", label="warmup (excluded)")
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("CPU usage [%]")
     ax.set_title("Publisher CPU usage over time")
     ax.grid(True, **grid_kw)
+    if cpu_pts:
+        ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_dir / "cpu.png", dpi=120)
     plt.close(fig)
 
-    # --- Memory over time with regression trend. ---
+    # --- Memory over time with regression trend (fit only on post-warmup
+    # samples, matching evaluate_resources's growth-rate calculation). ---
     mem_pts = [(t, r) for t, r, _c in samples]
     fig, ax = plt.subplots(figsize=(11, 4))
     if mem_pts:
         xs = [p[0] for p in mem_pts]
         ys = [p[1] for p in mem_pts]
         ax.plot(xs, ys, linewidth=1.0, color=SENSOR_COLORS[2], label="RSS")
-        slope, intercept = linreg(xs, ys)
-        ax.plot(xs, [slope * x + intercept for x in xs], linestyle="--",
-                color="#B00020", linewidth=1.2,
-                label="trend (%.3f MB/min)" % (slope * 60.0))
-        ax.legend(loc="best", fontsize=8)
+        fit_xy = [(x, y) for x, y in zip(xs, ys) if x >= warmup]
+        if len(fit_xy) >= 2:
+            fit_x = [x for x, _y in fit_xy]
+            slope, intercept = linreg(fit_x, [y for _x, y in fit_xy])
+            ax.plot(fit_x, [slope * x + intercept for x in fit_x], linestyle="--",
+                    color="#B00020", linewidth=1.2,
+                    label="trend (%.3f MB/min)" % (slope * 60.0))
+    if warmup > 0:
+        ax.axvspan(0, warmup, color="0.9", label="warmup (excluded)")
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("RSS memory [MB]")
     ax.set_title("Publisher memory (RSS) over time")
     ax.grid(True, **grid_kw)
+    if mem_pts:
+        ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_dir / "memory.png", dpi=120)
     plt.close(fig)
@@ -1287,7 +1309,8 @@ def main():
         for sd in sorted(sensors.values(), key=lambda s: s.topic)
     ]
     res = evaluate_resources(monitor.samples if monitor else [],
-                             args.mem_growth_threshold, args.cpu_growth_threshold)
+                             args.mem_growth_threshold, args.cpu_growth_threshold,
+                             args.warmup)
     proc_ok = not (monitor and monitor.crashed) and not crashed_during_run
     process_result = {
         "pass": proc_ok,
