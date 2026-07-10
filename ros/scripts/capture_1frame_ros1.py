@@ -43,14 +43,20 @@ def parse_args():
 
 def main():
     args = parse_args()
-    rospy.init_node("save_cepton_frame_to_csv", anonymous=True, disable_signals=True)
+    rospy.init_node(
+        "save_cepton_frame_to_csv",
+        anonymous=True,
+        disable_signals=True)
     output_path = Path(args.output).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        msg = rospy.wait_for_message(args.topic, PointCloud2, timeout=args.timeout)
+        msg = rospy.wait_for_message(
+            args.topic, PointCloud2, timeout=args.timeout)
     except rospy.ROSException as exc:
-        print(f"Failed to receive a frame from {args.topic}: {exc}", file=sys.stderr)
+        print(
+            f"Failed to receive a frame from {args.topic}: {exc}",
+            file=sys.stderr)
         return 1
 
     field_names = [field.name for field in msg.fields]
@@ -68,7 +74,10 @@ def main():
         for point in points:
             row = list(point)
             if args.include_header:
-                row = [msg.header.stamp.secs, msg.header.stamp.nsecs, msg.header.frame_id] + row
+                row = [
+                    msg.header.stamp.secs,
+                    msg.header.stamp.nsecs,
+                    msg.header.frame_id] + row
             writer.writerow(row)
 
     print(
