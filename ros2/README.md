@@ -4,6 +4,9 @@
 - Ubuntu 22.04 LTS `amd64`/`arm64` + ROS 2 Humble Hawksbill
 - Ubuntu 24.04 LTS `amd64`/`arm64` + ROS 2 Jazzy Jalisco
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the coding style these packages follow and how
+to run the formatter/linter.
+
 # CeptonPublisher Configuration Guide
 
 This guide covers all configuration options available for the Cepton ROS Publisher based on the implementation in `cepton_publisher.cpp`.
