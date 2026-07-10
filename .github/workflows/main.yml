@@ -51,26 +51,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install lint tools (pinned)
-        run: pip install -r ci/lint-requirements.txt
+      - name: Build docker image
+        run: docker build . --tag ci_lint_$GITHUB_SHA -f ci/Dockerfile.lint
 
       - name: clang-format check (ROS1, ROS CppStyleGuide)
         if: success() || failure()
-        run: git ls-files 'ros/*.cpp' 'ros/*.hpp' | xargs clang-format --dry-run -Werror
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros/*.cpp" "ros/*.hpp" | xargs clang-format --dry-run -Werror
+            '
 
       - name: clang-format check (ROS2, ament_clang_format style)
         if: success() || failure()
-        run: git ls-files 'ros2/*.cpp' 'ros2/*.h' 'ros2/*.hpp' | xargs clang-format --dry-run -Werror
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros2/*.cpp" "ros2/*.h" "ros2/*.hpp" | xargs clang-format --dry-run -Werror
+            '
 
       - name: flake8 (ROS1, PEP 8)
         if: success() || failure()
-        run: git ls-files 'ros/*.py' | xargs flake8 --config=ros/.flake8
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros/*.py" | xargs flake8 --config=ros/.flake8
+            '
 
       - name: flake8 (ROS2, ament_flake8 configuration)
         if: success() || failure()
-        run: git ls-files 'ros2/*.py' | xargs flake8 --config=ros2/.flake8
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros2/*.py" | xargs flake8 --config=ros2/.flake8
+            '
