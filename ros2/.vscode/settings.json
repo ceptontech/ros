@@ -73,5 +73,20 @@
         "variant": "cpp",
         "codecvt": "cpp",
         "forward_list": "cpp"
-    }
+    },
+
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.clang_format_fallbackStyle": "none",
+    "C_Cpp.clang_format_path": "/usr/bin/clang-format",
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools",
+        "editor.formatOnSave": true
+    },
+
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8",
+        "editor.formatOnSave": true
+    },
+    "flake8.cwd": "${fileDirname}",
+    "autopep8.cwd": "${fileDirname}"
 }
