@@ -22,9 +22,13 @@
 #include "cepton_ros/cepton_ros.hpp"
 #include "cepton_sdk3.h"
 
-enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
+enum SensorStatusFlags : uint32_t
+{
+  SENSOR_TIMED_OUT = 1 << 0
+};
 
-namespace cepton_ros {
+namespace cepton_ros
+{
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
@@ -33,27 +37,25 @@ const String VERSION = "v2.1.1";
 /**
  * Cepton SDK nodelet. Publishes sensor point topics.
  **/
-class PublisherNodelet : public nodelet::Nodelet {
+class PublisherNodelet : public nodelet::Nodelet
+{
   using PublisherMap = std::unordered_map<CeptonSensorHandle, ros::Publisher>;
-  using TimerMap =
-      std::unordered_map<CeptonSensorHandle,
-                         std::chrono::time_point<std::chrono::system_clock>>;
+  using TimerMap = std::unordered_map<CeptonSensorHandle, std::chrono::time_point<std::chrono::system_clock>>;
   using SerialNumberMap = std::unordered_map<CeptonSensorHandle, uint32_t>;
 
- public:
+public:
   ~PublisherNodelet();
 
   void check_api_error(int err, char const* api);
 
-  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
-                      size_t n_points, const CeptonPointEx* points);
+  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points);
 
   void publish_sensor_info(const CeptonSensor* info);
 
- protected:
+protected:
   void onInit() override;
 
- private:
+private:
   /** ROS node handle for public fields */
   ros::NodeHandle node_handle_;
 
@@ -86,7 +88,7 @@ class PublisherNodelet : public nodelet::Nodelet {
 
   // SDK 21+ uses bit 14 for SPAD column, which is metadata rather
   // than a point-quality reject bit. Keep it allowed so valid points are not
-  // dropped by the include filter. 
+  // dropped by the include filter.
   // Allow the point regardless of L or R columns
   const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
 
@@ -98,17 +100,17 @@ class PublisherNodelet : public nodelet::Nodelet {
    * should be included, or 0 if excluded. The pre-included flags are "ignored",
    * either because it is for internal use only, or because it is deprecated.
    */
-  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                           CEPTON_POINT_FRAME_BOUNDARY |
-                           CEPTON_POINT_SPAD_COLUMN;
+  uint16_t include_flag_ =
+      CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY | CEPTON_POINT_FRAME_BOUNDARY | CEPTON_POINT_SPAD_COLUMN;
 
-  CeptonReplayHandle replay_handle_{0};
+  CeptonReplayHandle replay_handle_{ 0 };
 
   /**
    * Store network source information (ip, port, multicast_group) for cleanup
    * on shutdown
    */
-  struct NetworkSource {
+  struct NetworkSource
+  {
     std::string ip;
     uint16_t port;
     std::string multicast_group;
@@ -116,31 +118,31 @@ class PublisherNodelet : public nodelet::Nodelet {
   std::vector<NetworkSource> networking_sources_;
 
   /** If set to true, the nodelet will advertise topics by sensor handle */
-  bool output_by_handle_{true};
+  bool output_by_handle_{ true };
 
   /** If set to true, the nodelet will advertise topics by serial number */
-  bool output_by_sn_{true};
+  bool output_by_sn_{ true };
 
   /** Altitude filter, in degrees */
-  double min_altitude_{-90.};
-  double max_altitude_{90.};
+  double min_altitude_{ -90. };
+  double max_altitude_{ 90. };
 
   /** Azimuth filter, in degrees */
-  double min_azimuth_ = {-90.0};
-  double max_azimuth_{90.};
+  double min_azimuth_ = { -90.0 };
+  double max_azimuth_{ 90. };
 
   /** Tangent limits (derived from azimuth and altitude filter) */
-  double min_image_x_{0.0};
-  double max_image_x_{0.0};
-  double min_image_z_{0.0};
-  double max_image_z_{0.0};
+  double min_image_x_{ 0.0 };
+  double max_image_x_{ 0.0 };
+  double min_image_z_{ 0.0 };
+  double max_image_z_{ 0.0 };
 
   /** The minimum point distance to keep (meters) */
-  float min_distance_{0.0};
+  float min_distance_{ 0.0 };
   /** The maximum point distance to keep (meters) */
-  float max_distance_{std::numeric_limits<float>::max()};
+  float max_distance_{ std::numeric_limits<float>::max() };
 
-  bool aggregate_frames_{false};
+  bool aggregate_frames_{ false };
 
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
@@ -161,7 +163,7 @@ class PublisherNodelet : public nodelet::Nodelet {
   /** Store the handle to serial number mappings */
   SerialNumberMap handle_to_serial_number_;
 
-  bool stopping_{false};
+  bool stopping_{ false };
 };
 
 }  // namespace cepton_ros
