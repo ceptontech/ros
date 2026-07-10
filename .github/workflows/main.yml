@@ -81,3 +81,21 @@ jobs:
             docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
             git ls-files "ros2/*.py" | xargs flake8 --config=ros2/.flake8
             '
+
+  ci-success:
+    name: CI success
+    runs-on: ubuntu-latest
+    needs:
+      - build-driver-ros2
+      - build-driver-ros1
+      - lint
+    if: always()
+    steps:
+      - name: Check all required jobs succeeded
+        run: |
+            if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+              echo "One or more required jobs did not succeed:"
+              echo '${{ toJSON(needs) }}'
+              exit 1
+            fi
+            echo "All required jobs succeeded."
