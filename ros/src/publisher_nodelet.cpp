@@ -1,64 +1,37 @@
 #include "publisher_nodelet.hpp"
 
 #include <arpa/inet.h>
-#include <math.h>
+#include <cmath>
 #include <netinet/in.h>
 #include <pluginlib/class_list_macros.h>
 
-#include <future>
-#include <iostream>
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <cstdlib>
+#include <exception>
 #include <string>
+#include <utility>
 #include <vector>
 
 PLUGINLIB_EXPORT_CLASS(cepton_ros::PublisherNodelet, nodelet::Nodelet);
 
-inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
+namespace {
+constexpr double kPi = 3.14159265358979323846;
+constexpr uint16_t kCeptonPointAmbient = 1U << 15;
+constexpr char kFrameId[] = "cepton3";
+const auto kSensorPointsTimeout = std::chrono::seconds(3);
 
-/**
- * Parse a network source string in the format "ip:port" or "ip:port:multicast"
- * @param source_str The source string to parse
- * @param ip Output parameter for IP address (empty string for nullptr/0.0.0.0)
- * @param port Output parameter for port number
- * @param multicast_group Output parameter for multicast group (empty string for
- * nullptr)
- * @return true if parsing succeeded, false otherwise
- */
-bool parse_network_source(const std::string& source_str, std::string& ip,
-                          uint16_t& port, std::string& multicast_group) {
-  // Split by ':' delimiter
-  size_t first_colon = source_str.find(':');
-  if (first_colon == std::string::npos) {
-    return false;
-  }
+double degrees_to_radians(double degrees) { return degrees * kPi / 180.0; }
 
-  ip = source_str.substr(0, first_colon);
-  size_t second_colon = source_str.find(':', first_colon + 1);
-
-  std::string port_str;
-  if (second_colon != std::string::npos) {
-    // Format: ip:port:multicast
-    port_str =
-        source_str.substr(first_colon + 1, second_colon - first_colon - 1);
-    multicast_group = source_str.substr(second_colon + 1);
-  } else {
-    // Format: ip:port
-    port_str = source_str.substr(first_colon + 1);
-    multicast_group = "";
-  }
-
-  // Parse port
-  try {
-    int port_int = std::stoi(port_str);
-    if (port_int < 0 || port_int > 65535) {
-      return false;
-    }
-    port = static_cast<uint16_t>(port_int);
-  } catch (...) {
-    return false;
-  }
-
-  return true;
+const char* sdk_ip(const std::string& ip) {
+  return (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
 }
+
+const char* sdk_multicast_group(const std::string& multicast_group) {
+  return multicast_group.empty() ? nullptr : multicast_group.c_str();
+}
+}  // namespace
 
 namespace cepton_ros {
 
@@ -75,28 +48,36 @@ void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
 /**
  * SDK callback
  */
-void on_sensor_info(CeptonSensorHandle handle, const struct CeptonSensor* info,
+void on_sensor_info(CeptonSensorHandle, const struct CeptonSensor* info,
                     void* user_data) {
   reinterpret_cast<PublisherNodelet*>(user_data)->publish_sensor_info(info);
 }
 
 PublisherNodelet::~PublisherNodelet() {
-  int ret;
+  sensor_status_timer_.stop();
+  watchdog_timer_.stop();
+
+  // Stop callbacks before releasing buffers and publishers.
+  CeptonUnlistenFramesEx(on_ex_frame, this);
+  CeptonUnlistenSensorInfo(on_sensor_info, this);
 
   // Remove all networking sources
   for (const auto& source : networking_sources_) {
-    const char* ip_ptr = (source.ip.empty() || source.ip == "0.0.0.0")
-                             ? nullptr
-                             : source.ip.c_str();
-    const char* multicast_ptr = source.multicast_group.empty()
-                                    ? nullptr
-                                    : source.multicast_group.c_str();
-    ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
-    check_api_error(ret, "CeptonRemoveNetworkingSource");
+    const int ret = CeptonRemoveNetworkingSource(
+        sdk_ip(source.ip), source.port,
+        sdk_multicast_group(source.multicast_group));
+    if (ret != CEPTON_SUCCESS) {
+      NODELET_ERROR("[%s] cleanup API error: %s -> %s", getName().c_str(),
+                    "CeptonRemoveNetworkingSource",
+                    CeptonGetErrorCodeName(ret));
+    }
   }
 
-  ret = CeptonDeinitialize();
-  check_api_error(ret, "CeptonDeinitialize");
+  const int ret = CeptonDeinitialize();
+  if (ret != CEPTON_SUCCESS) {
+    NODELET_ERROR("[%s] cleanup API error: %s -> %s", getName().c_str(),
+                  "CeptonDeinitialize", CeptonGetErrorCodeName(ret));
+  }
 }
 
 void PublisherNodelet::check_api_error(int err, char const* api) {
@@ -107,30 +88,32 @@ void PublisherNodelet::check_api_error(int err, char const* api) {
   }
 }
 
-/**
- * Sensors are reported as "timed-out" after this duration, in the sensor status
- * topic
- */
-const auto SENSOR_POINTS_TIMEOUT = std::chrono::seconds(3);
-
 void PublisherNodelet::onInit() {
   ROS_INFO("\n\n========== Version: %s ==========\n ", VERSION.c_str());
   ROS_INFO("Publisher Nodelet Started");
 
-  int ret;
   node_handle_ = getNodeHandle();
   private_node_handle_ = getPrivateNodeHandle();
 
-  // Get parameters
-  std::string capture_path = "";
-  private_node_handle_.param("capture_path", capture_path, capture_path);
-
+  std::string capture_path;
   bool capture_loop = true;
-  uint32_t replay_flags = 0;
+  std::vector<std::string> sensor_network_sources;
+  load_parameters(capture_path, capture_loop, sensor_network_sources);
+  configure_point_flags();
+  initialize_publishers();
+  initialize_sdk();
+  configure_input(capture_path, capture_loop, sensor_network_sources);
+  register_sdk_callbacks();
+  start_replay_watchdog(capture_path);
+  start_status_monitor();
+  register_expected_sensors();
+}
+
+void PublisherNodelet::load_parameters(
+    std::string& capture_path, bool& capture_loop,
+    std::vector<std::string>& sensor_network_sources) {
+  private_node_handle_.param("capture_path", capture_path, capture_path);
   private_node_handle_.param("capture_loop", capture_loop, capture_loop);
-  if (capture_loop) {
-    replay_flags = CEPTON_REPLAY_FLAG_PLAY_LOOPED;
-  }
 
   private_node_handle_.param("min_altitude", min_altitude_, min_altitude_);
   private_node_handle_.param("max_altitude", max_altitude_, max_altitude_);
@@ -138,24 +121,29 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("max_azimuth", max_azimuth_, max_azimuth_);
 
   // Clip so that we can safely take the tangent
-  min_azimuth_ = std::max(-89.9, min_azimuth_);
-  max_azimuth_ = std::min(89.9, max_azimuth_);
-  min_altitude_ = std::max(-89.9, min_altitude_);
-  max_altitude_ = std::min(89.9, max_altitude_);
+  min_azimuth_ = std::max(-89.9, std::min(89.9, min_azimuth_));
+  max_azimuth_ = std::max(-89.9, std::min(89.9, max_azimuth_));
+  min_altitude_ = std::max(-89.9, std::min(89.9, min_altitude_));
+  max_altitude_ = std::max(-89.9, std::min(89.9, max_altitude_));
+  if (min_azimuth_ > max_azimuth_) std::swap(min_azimuth_, max_azimuth_);
+  if (min_altitude_ > max_altitude_) {
+    std::swap(min_altitude_, max_altitude_);
+  }
 
-  min_image_x_ = std::tan(degrees_to_radians(min_azimuth_));
-  max_image_x_ = std::tan(degrees_to_radians(max_azimuth_));
-  min_image_z_ = std::tan(degrees_to_radians(min_altitude_));
-  max_image_z_ = std::tan(degrees_to_radians(max_altitude_));
+  point_filter_.min_image_x = std::tan(degrees_to_radians(min_azimuth_));
+  point_filter_.max_image_x = std::tan(degrees_to_radians(max_azimuth_));
+  point_filter_.min_image_z = std::tan(degrees_to_radians(min_altitude_));
+  point_filter_.max_image_z = std::tan(degrees_to_radians(max_altitude_));
 
   private_node_handle_.param("max_distance", max_distance_, max_distance_);
   private_node_handle_.param("min_distance", min_distance_, min_distance_);
+  min_distance_ = std::max(0.0F, min_distance_);
+  max_distance_ = std::max(min_distance_, max_distance_);
 
   private_node_handle_.param("output_by_handle", output_by_handle_,
                              output_by_handle_);
   private_node_handle_.param("output_by_sn", output_by_sn_, output_by_sn_);
 
-  std::vector<std::string> sensor_network_sources;
   private_node_handle_.param("sensor_network_sources", sensor_network_sources,
                              sensor_network_sources);
 
@@ -165,44 +153,48 @@ void PublisherNodelet::onInit() {
   private_node_handle_.param("aggregate_frames", aggregate_frames_,
                              aggregate_frames_);
 
-  // Check for which points should be included based on params for flag bits
-  {
-    bool include = true;
+  point_filter_.min_distance_squared = min_distance_ * min_distance_;
+  point_filter_.max_distance_squared = max_distance_ * max_distance_;
+}
 
-    ROS_INFO("============= Point Flag Parameters =============\n");
+void PublisherNodelet::configure_point_flags() {
+  bool include = true;
 
-    private_node_handle_.param("include_saturated_points", include, true);
-    include_flag_ |= (include ? CEPTON_POINT_SATURATED : 0);
-    ROS_INFO("Including Saturated points: %s\n", include ? "true" : "false");
+  ROS_INFO("============= Point Flag Parameters =============\n");
 
-    // keep frame low_snr/parity/boundary as internal for now
+  private_node_handle_.param("include_saturated_points", include, true);
+  include_flag_ |= (include ? CEPTON_POINT_SATURATED : 0);
+  ROS_INFO("Including Saturated points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_second_return_points", include, true);
-    include_flag_ |= (include ? CEPTON_POINT_SECOND_RETURN : 0);
-    ROS_INFO("Including Second Return  points: %s\n",
-             include ? "true" : "false");
+  // keep frame low_snr/parity/boundary as internal for now
 
-    private_node_handle_.param("include_invalid_points", include, false);
-    include_flag_ |= (include ? CEPTON_POINT_NO_RETURN : 0);
-    ROS_INFO("Including Invalid (No Return) points: %s\n",
-             include ? "true" : "false");
+  private_node_handle_.param("include_second_return_points", include, true);
+  include_flag_ |= (include ? CEPTON_POINT_SECOND_RETURN : 0);
+  ROS_INFO("Including Second Return points: %s\n",
+           include ? "true" : "false");
 
-    private_node_handle_.param("include_noise_points", include, false);
-    include_flag_ |= (include ? CEPTON_POINT_NOISE : 0);
-    ROS_INFO("Including Noise points: %s\n", include ? "true" : "false");
+  private_node_handle_.param("include_invalid_points", include, false);
+  include_flag_ |= (include ? CEPTON_POINT_NO_RETURN : 0);
+  ROS_INFO("Including Invalid (No Return) points: %s\n",
+           include ? "true" : "false");
 
-    private_node_handle_.param("include_blocked_points", include, false);
-    include_flag_ |= (include ? CEPTON_POINT_BLOCKED : 0);
-    ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
+  private_node_handle_.param("include_noise_points", include, false);
+  include_flag_ |= (include ? CEPTON_POINT_NOISE : 0);
+  ROS_INFO("Including Noise points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_ambient_points", include, false);
-    include_flag_ |= (include ? CEPTON_POINT_AMBIENT : 0);
-    ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
+  private_node_handle_.param("include_blocked_points", include, false);
+  include_flag_ |= (include ? CEPTON_POINT_BLOCKED : 0);
+  ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
-    ROS_INFO("=================================================\n");
-  }
+  private_node_handle_.param("include_ambient_points", include, false);
+  include_flag_ |= (include ? kCeptonPointAmbient : 0);
+  ROS_INFO("Including Ambient points: %s\n", include ? "true" : "false");
 
-  // Assign publisher for info
+  ROS_INFO("=================================================\n");
+  point_filter_.include_flags = include_flag_;
+}
+
+void PublisherNodelet::initialize_publishers() {
   sensor_info_publisher_ =
       node_handle_.advertise<cepton_ros::SensorInformation>(
           "cepton3/sensor_information", 2);
@@ -211,13 +203,18 @@ void PublisherNodelet::onInit() {
   points_publisher_ =
       node_handle_.advertise<cepton_ros::Cloud>("cepton3/points", 50);
 
-  // Initialize SDK
-  ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
+  sensor_status_publisher_ =
+      node_handle_.advertise<cepton_ros::CeptonSensorStatus>(
+          "cepton3/cepton_sensor_status", 2);
+}
+
+void PublisherNodelet::initialize_sdk() {
+  int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_api_error(ret, "CeptonInitialize");
 
   uint32_t control_flags = 0;
 
-  if (include_flag_ & CEPTON_POINT_AMBIENT) {
+  if (include_flag_ & kCeptonPointAmbient) {
     control_flags |= CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT;
   } else {
     control_flags |= CEPTON_SDK_CONTROL_FLAG_PARSE_TOF;
@@ -231,11 +228,16 @@ void PublisherNodelet::onInit() {
 
   ret = CeptonSetSdkControlFlags(control_flags);
   check_api_error(ret, "CeptonSetSdkControlFlags");
+}
 
-  // Start SDK CaptureReplay or Networking
+void PublisherNodelet::configure_input(
+    const std::string& capture_path, bool capture_loop,
+    const std::vector<std::string>& sensor_network_sources) {
+  const uint32_t replay_flags =
+      capture_loop ? CEPTON_REPLAY_FLAG_PLAY_LOOPED : 0;
   if (!capture_path.empty()) {
-    ret = CeptonReplayLoadPcap(capture_path.c_str(), replay_flags,
-                               &replay_handle_);
+    const int ret = CeptonReplayLoadPcap(capture_path.c_str(), replay_flags,
+                                         &replay_handle_);
     check_api_error(ret, "CeptonReplayLoadPcap");
   } else {
     // Add networking sources for UDP data from specified network sources.
@@ -245,153 +247,171 @@ void PublisherNodelet::onInit() {
       // interfaces, port 8808). Listen on all interfaces (nullptr) with no
       // multicast group (nullptr for unicast operation)
       ROS_INFO("Add networking source on default: 0.0.0.0:8808");
-      ret = CeptonAddNetworkingSource(nullptr, 8808, nullptr);
-      check_api_error(ret, "CeptonAddNetworkingSource");
-      networking_sources_.push_back({"0.0.0.0", 8808, ""});
+      if (!add_networking_source({"0.0.0.0", 8808, ""})) {
+        check_api_error(CEPTON_ERROR_GENERIC, "CeptonAddNetworkingSource");
+      }
     } else {
       // Add a networking source for each configured source string
       for (const auto& source_str : sensor_network_sources) {
-        std::string ip;
-        uint16_t port;
-        std::string multicast_group;
-
-        if (!parse_network_source(source_str, ip, port, multicast_group)) {
+        NetworkSource source;
+        if (!parse_network_source(source_str, source)) {
           ROS_ERROR("Failed to parse network source: %s", source_str.c_str());
           continue;
         }
 
-        // Convert empty IP string or "0.0.0.0" to nullptr for SDK
-        const char* ip_ptr =
-            (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
-        const char* multicast_ptr =
-            multicast_group.empty() ? nullptr : multicast_group.c_str();
-
-        ROS_INFO("Add networking source: ip=%s, port=%d, multicast=%s",
-                 ip_ptr ? ip_ptr : "0.0.0.0", port,
-                 multicast_ptr ? multicast_ptr : "none");
-
-        ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
-        if (ret != CEPTON_SUCCESS) {
+        if (!add_networking_source(source)) {
           NODELET_ERROR(
               "Source not added successfully, check that sensor is configured "
               "properly and running: %s",
               source_str.c_str());
+          continue;
         }
-        // Store for cleanup
-        networking_sources_.push_back({ip, port, multicast_group});
       }
     }
   }
+}
 
-  // Listen for frames
-  ret =
+void PublisherNodelet::register_sdk_callbacks() {
+  int ret =
       CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame, this);
   check_api_error(ret, "CeptonListenFrames");
 
   // Listen for sensor info
   ret = CeptonListenSensorInfo(on_sensor_info, this);
   check_api_error(ret, "CeptonListenSensorInfo");
+}
 
-  // Start watchdog timer, if using pcap replay
+void PublisherNodelet::start_replay_watchdog(
+    const std::string& capture_path) {
   if (!capture_path.empty()) {
     watchdog_timer_ = node_handle_.createTimer(
-        ros::Duration(0.1), [&](const ros::TimerEvent& event) {
+        ros::Duration(0.1), [this](const ros::TimerEvent&) {
           // Shut down if a replay was loaded, and if the replay is finished
           if (replay_handle_ != 0 &&
               CeptonReplayIsFinished(replay_handle_) == 1) {
             NODELET_INFO("[%s] capture replay done", getName().c_str());
-            ret = CeptonReplayUnloadPcap(replay_handle_);
+            int ret = CeptonReplayUnloadPcap(replay_handle_);
             check_api_error(ret, "CeptonReplayUnload");
+            replay_handle_ = 0;
 
             ros::shutdown();
           }
         });
   }
+}
 
-  // Status monitoring
-  {
-    sensor_status_publisher_ =
-        node_handle_.advertise<cepton_ros::CeptonSensorStatus>(
-            "cepton3/cepton_sensor_status", 2);
+void PublisherNodelet::start_status_monitor() {
+  sensor_status_timer_ = node_handle_.createTimer(
+      ros::Duration(1.0), &PublisherNodelet::report_timed_out_sensors, this);
+}
 
-    // Start the status monitor
-    sensor_status_thread = std::thread([&]() {
-      while (!stopping_) {
-        // Store the handle and serial number of each timed out sensor.
-        // Use 0 if no serial number has been found.
-        std::unordered_map<CeptonSensorHandle, uint32_t> timed_out_sensors;
-        {
-          std::lock_guard<std::mutex> lock(status_lock_);
-          // Update status messages for each sensor
-          auto now = std::chrono::system_clock::now();
-
-          for (auto itr = last_points_time_.begin();
-               itr != last_points_time_.end(); itr++) {
-            auto const handle = itr->first;
-            auto const last_points_time = itr->second;
-            if (now - last_points_time > SENSOR_POINTS_TIMEOUT) {
-              timed_out_sensors[handle] = handle_to_serial_number_.count(handle)
-                                              ? handle_to_serial_number_[handle]
-                                              : 0;
-            }
-          }
-          for (auto itr = timed_out_sensors.begin();
-               itr != timed_out_sensors.end(); itr++) {
-            auto const handle = itr->first;
-            auto const serial_number = itr->second;
-            auto msg = cepton_ros::CeptonSensorStatus();
-            msg.serial_number = serial_number;
-            msg.handle = handle;
-            msg.status = SENSOR_TIMED_OUT;
-            sensor_status_publisher_.publish(msg);
-          }
-        }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-      }
-    });
-  }
-
-  // Set up the expected IPs (convert IP strings to u32)
+void PublisherNodelet::register_expected_sensors() {
+  std::lock_guard<std::mutex> lock(status_lock_);
   for (auto const& expected_ip : expected_sensor_ips_) {
     ROS_INFO("Adding expected IP %s", expected_ip.c_str());
-    struct in_addr addr;
-    inet_aton(expected_ip.c_str(), &addr);
-    // handle is in big-endian. inet_aton returns little endian
-    last_points_time_[__bswap_32(addr.s_addr)] =
+    struct in_addr addr {};
+    if (inet_aton(expected_ip.c_str(), &addr) == 0) {
+      NODELET_ERROR("Invalid expected sensor IP: %s", expected_ip.c_str());
+      continue;
+    }
+    last_points_time_[ntohl(addr.s_addr)] =
         std::chrono::system_clock::now();
   }
 }
 
-void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
-                        size_t n_points, const CeptonPointEx* points,
-                        bool first, float min_distance, float max_distance,
-                        float min_image_x, float max_image_x, float min_image_z,
-                        float max_image_z, uint16_t include_flag) {
-  const auto max_distance_squared = max_distance * max_distance;
-  const auto min_distance_squared = min_distance * min_distance;
+bool PublisherNodelet::parse_network_source(const std::string& source,
+                                            NetworkSource& result) {
+  const auto first_colon = source.find(':');
+  if (first_colon == std::string::npos) return false;
+
+  const auto second_colon = source.find(':', first_colon + 1);
+  if (second_colon != std::string::npos &&
+      source.find(':', second_colon + 1) != std::string::npos) {
+    return false;
+  }
+
+  result.ip = source.substr(0, first_colon);
+  const auto port_text = source.substr(
+      first_colon + 1,
+      second_colon == std::string::npos ? std::string::npos
+                                        : second_colon - first_colon - 1);
+  result.multicast_group = second_colon == std::string::npos
+                               ? std::string{}
+                               : source.substr(second_colon + 1);
+
+  try {
+    size_t parsed_length = 0;
+    const unsigned long port = std::stoul(port_text, &parsed_length);
+    if (parsed_length != port_text.size() || port == 0 || port > 65535) {
+      return false;
+    }
+    result.port = static_cast<uint16_t>(port);
+  } catch (const std::exception&) {
+    return false;
+  }
+  return true;
+}
+
+bool PublisherNodelet::add_networking_source(const NetworkSource& source) {
+  const char* ip = sdk_ip(source.ip);
+  const char* multicast_group = sdk_multicast_group(source.multicast_group);
+  ROS_INFO("Add networking source: ip=%s, port=%u, multicast=%s",
+           ip ? ip : "0.0.0.0", static_cast<unsigned>(source.port),
+           multicast_group ? multicast_group : "none");
+
+  const int ret = CeptonAddNetworkingSource(ip, source.port, multicast_group);
+  if (ret != CEPTON_SUCCESS) return false;
+  networking_sources_.push_back(source);
+  return true;
+}
+
+void PublisherNodelet::report_timed_out_sensors(const ros::TimerEvent&) {
+  std::vector<std::pair<CeptonSensorHandle, uint32_t>> timed_out_sensors;
+  {
+    std::lock_guard<std::mutex> lock(status_lock_);
+    const auto now = std::chrono::system_clock::now();
+    for (const auto& entry : last_points_time_) {
+      if (now - entry.second <= kSensorPointsTimeout) continue;
+      const auto serial = handle_to_serial_number_.find(entry.first);
+      timed_out_sensors.emplace_back(
+          entry.first, serial == handle_to_serial_number_.end() ? 0
+                                                                : serial->second);
+    }
+  }
+
+  for (const auto& sensor : timed_out_sensors) {
+    cepton_ros::CeptonSensorStatus msg;
+    msg.handle = sensor.first;
+    msg.serial_number = sensor.second;
+    msg.status = SENSOR_TIMED_OUT;
+    sensor_status_publisher_.publish(msg);
+  }
+}
+
+void PublisherNodelet::extend_from_points(
+    cepton_ros::Cloud& cloud, int64_t start_timestamp, size_t n_points,
+    const CeptonPointEx* points, bool first) const {
 
   if (first) {
     // Reset
     cloud.clear();
     cloud.header.stamp = start_timestamp;
-    cloud.header.frame_id = "cepton3";
+    cloud.header.frame_id = kFrameId;
     cloud.height = 1;
     cloud.width = n_points;
     cloud.reserve(n_points);
   } else {
-    cloud.width += n_points;
+    cloud.reserve(cloud.points.size() + n_points);
   }
 
-  int kept = first ? 0 : cloud.width;
-
   // Add the points
-  for (int i = 0; i < n_points; ++i) {
+  for (size_t i = 0; i < n_points; ++i) {
     cepton_ros::Point cp;
     auto const& p = points[i];
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
-    if ((~include_flag & p.flags) != 0) continue;
+    if ((~point_filter_.include_flags & p.flags) != 0) continue;
 
     // Convert the units to meters (SDK unit is 1.0 / 65536.0)
     float x = static_cast<float>(p.x) / 65536.0;
@@ -413,14 +433,18 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) continue;
+    // if (distance_squared >= 500 * 500) continue;
 
+    if (x == 0.0F) continue;
     const float tan_yx = y / x;
     const float tan_zx = z / x;
 
-    if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z ||
-        tan_zx > max_image_z || distance_squared < min_distance_squared ||
-        distance_squared > max_distance_squared)
+    if (tan_yx < point_filter_.min_image_x ||
+        tan_yx > point_filter_.max_image_x ||
+        tan_zx < point_filter_.min_image_z ||
+        tan_zx > point_filter_.max_image_z ||
+        distance_squared < point_filter_.min_distance_squared ||
+        distance_squared > point_filter_.max_distance_squared)
       continue;
 
     cp.x = x;
@@ -435,84 +459,50 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp,
     cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
 #endif
 #ifdef WITH_POLAR
-    const double azimuth_rad = atan(tan_yx);
-    const double elevation_rad = atan2(tan_zx, sqrt(tan_yx * tan_yx + 1));
+    const double azimuth_rad = std::atan(tan_yx);
+    const double elevation_rad =
+        std::atan2(tan_zx, std::sqrt(tan_yx * tan_yx + 1));
     cp.azimuth = azimuth_rad;
     cp.elevation = elevation_rad;
 #endif
     cloud.points.push_back(cp);
-    kept++;
   }
-  // Resize according to number of kept points
-  cloud.width = kept;
-  if (kept > 0) cloud.points.resize(kept);
+  cloud.width = cloud.points.size();
 }
 
 void PublisherNodelet::publish_points(CeptonSensorHandle handle,
                                       int64_t start_timestamp, size_t n_points,
                                       const CeptonPointEx* points) {
-  // Buffer to build the output cloud
-  static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
-
-  // Store the parity of each cloud. This may be used for 2-frames aggregation
-  static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
-
-  // Update the sensor status
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     last_points_time_[handle] = std::chrono::system_clock::now();
   }
 
-  // Update parity
-  if (cloud_parity.find(handle) == cloud_parity.end()) {
-    cloud_parity[handle] = 0;
-  }
-  cloud_parity[handle] = 1 - cloud_parity[handle];
-
-  const auto first = cloud_parity[handle] == 1;
-
-  // Prep the cloud
+  cepton_ros::Cloud cloud_to_publish;
+  ros::Publisher handle_publisher;
+  ros::Publisher serial_publisher;
   {
-    // Make sure there is an allocated buffer
-    if (clouds.find(handle) == clouds.end())
-      clouds[handle] = cepton_ros::Cloud();
+    std::lock_guard<std::mutex> lock(sensor_data_lock_);
+    auto& state = sensor_clouds_[handle];
+    const bool first = aggregate_frames_ ? state.first_frame : true;
+    if (aggregate_frames_) state.first_frame = !state.first_frame;
+    extend_from_points(state.cloud, start_timestamp, n_points, points, first);
+    if (aggregate_frames_ && first) return;
 
-    // Modify the same cloud buffer each time to avoid realloc
-    auto& cloud = clouds[handle];
-
-    // Add the new points
-    extend_from_points(cloud, start_timestamp, n_points, points, first,
-                       min_distance_, max_distance_, min_image_x_, max_image_x_,
-                       min_image_z_, max_image_z_, include_flag_);
+    cloud_to_publish = state.cloud;
+    const auto handle_it = handle_points_publisher_.find(handle);
+    if (output_by_handle_ && handle_it != handle_points_publisher_.end()) {
+      handle_publisher = handle_it->second;
+    }
+    const auto serial_it = serial_points_publisher_.find(handle);
+    if (output_by_sn_ && serial_it != serial_points_publisher_.end()) {
+      serial_publisher = serial_it->second;
+    }
   }
 
-  // If not ready to publish, return
-  if (aggregate_frames_ && first) {
-    return;
-  }
-
-  // Publish the point cloud
-  {
-    // If the last publish is still pending, wait for it to finish
-    if (pub_fut_.valid()) pub_fut_.wait();
-
-    // Launch a new process to do the publishing
-    pub_fut_ =
-        std::async(std::launch::async, [this, handle, start_timestamp]() {
-          auto const& cloud = clouds[handle];
-
-          // Publish points
-          points_publisher_.publish(cloud);
-
-          // Publish by handle
-          if (handle_points_publisher_.count(handle) && output_by_handle_)
-            handle_points_publisher_[handle].publish(cloud);
-
-          // Publish by serial number
-          if (serial_points_publisher_.count(handle) && output_by_sn_)
-            serial_points_publisher_[handle].publish(cloud);
-        });
-  }
+  points_publisher_.publish(cloud_to_publish);
+  if (handle_publisher) handle_publisher.publish(cloud_to_publish);
+  if (serial_publisher) serial_publisher.publish(cloud_to_publish);
 }
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
@@ -521,38 +511,35 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
     handle_to_serial_number_[info->handle] = info->serial_number;
   }
 
-  // Create a points publisher by handle
-  if (handle_points_publisher_.find(info->handle) ==
-          handle_points_publisher_.end() &&
-      output_by_handle_) {
-    auto handle_topic_name =
-        "cepton3/points_handle_" + std::to_string(info->handle);
-    handle_points_publisher_.insert(
-        std::pair<CeptonSensorHandle, ros::Publisher>(
-            info->handle,
-            node_handle_.advertise<cepton_ros::Cloud>(handle_topic_name, 2)));
-  }
-
-  // Create a points publisher by serial number
-  if (serial_points_publisher_.find(info->handle) ==
-          serial_points_publisher_.end() &&
-      output_by_sn_) {
-    auto sn_topic_name =
-        "cepton3/points_sn_" + std::to_string(info->serial_number);
-    serial_points_publisher_.insert(
-        std::pair<CeptonSensorHandle, ros::Publisher>(
-            info->handle,
-            node_handle_.advertise<cepton_ros::Cloud>(sn_topic_name, 2)));
-  }
-
-  // Create an info publisher by handle
-  if (handle_info_publisher_.find(info->handle) ==
-      handle_info_publisher_.end()) {
-    auto info_topic_name =
-        "cepton3/info_handle_" + std::to_string(info->serial_number);
-    handle_info_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
-        info->handle, node_handle_.advertise<cepton_ros::SensorInformation>(
-                          info_topic_name, 2)));
+  ros::Publisher info_publisher;
+  {
+    std::lock_guard<std::mutex> lock(sensor_data_lock_);
+    if (output_by_handle_ && !handle_points_publisher_.count(info->handle)) {
+      handle_points_publisher_.emplace(
+          info->handle, node_handle_.advertise<cepton_ros::Cloud>(
+                            "cepton3/points_handle_" +
+                                std::to_string(info->handle),
+                            2));
+    }
+    if (output_by_sn_ && !serial_points_publisher_.count(info->handle)) {
+      serial_points_publisher_.emplace(
+          info->handle, node_handle_.advertise<cepton_ros::Cloud>(
+                            "cepton3/points_sn_" +
+                                std::to_string(info->serial_number),
+                            2));
+    }
+    auto info_it = handle_info_publisher_.find(info->handle);
+    if (info_it == handle_info_publisher_.end()) {
+      info_it = handle_info_publisher_
+                    .emplace(info->handle,
+                             node_handle_
+                                 .advertise<cepton_ros::SensorInformation>(
+                                     "cepton3/info_handle_" +
+                                         std::to_string(info->serial_number),
+                                     2))
+                    .first;
+    }
+    info_publisher = info_it->second;
   }
 
   cepton_ros::SensorInformation msg;
@@ -578,7 +565,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   sensor_info_publisher_.publish(msg);
 
   // Publish on the sensor-specific topic
-  handle_info_publisher_[info->handle].publish(msg);
+  info_publisher.publish(msg);
 }
 
 }  // namespace cepton_ros
