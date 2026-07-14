@@ -1,16 +1,8 @@
-#include <chrono>
-#include <cstdio>
-#include <functional>
 #include <memory>
-#include <string>
-#include <thread>
-#include <vector>
 
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
-#include "sensor_msgs/point_cloud2_iterator.hpp"
-#include "std_msgs/msg/string.hpp"
 
 class CeptonSubscriber : public rclcpp::Node
 {

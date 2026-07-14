@@ -1,12 +1,14 @@
 #pragma once
 #include <chrono>
-#include <cmath>
-#include <cstdio>
-#include <functional>
+#include <cstddef>
+#include <cstdint>
+#include <future>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
@@ -14,8 +16,6 @@
 #include "cepton_sdk3.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
-#include "sensor_msgs/point_cloud2_iterator.hpp"
-#include "std_msgs/msg/string.hpp"
 
 namespace cepton_ros
 {

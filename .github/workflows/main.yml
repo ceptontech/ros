@@ -24,7 +24,17 @@ jobs:
         run: |
             docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_$GITHUB_SHA bash -ex -c '
             cd ros2
-            colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
+            colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher \
+              --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            '
+
+      - name: Include What You Use (clang-tidy misc-include-cleaner)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_$GITHUB_SHA bash -ex -c '
+            cd ros2
+            jq -s add build/*/compile_commands.json > build/compile_commands.json
+            git ls-files "*.cpp" | grep -E "cepton_(publisher|subscriber)/" | xargs clang-tidy -p build
             '
 
   build-driver-ros1:

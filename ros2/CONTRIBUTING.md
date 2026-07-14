@@ -6,6 +6,10 @@ These packages follow the official ROS 2 code style:
   enforced with the official `ament_clang_format` configuration
   ([ament/ament_lint](https://github.com/ament/ament_lint/blob/rolling/ament_clang_format/ament_clang_format/configuration/.clang-format)),
   checked into this repo as [`ros2/.clang-format`](./.clang-format).
+- **C++ includes**: every header that provides a symbol a `.cpp` file uses must be included
+  directly ([Include What You Use](https://include-what-you-use.org/)), checked with
+  `clang-tidy`'s `misc-include-cleaner`, configured in [`ros2/.clang-tidy`](./.clang-tidy).
+  See [Include What You Use](#include-what-you-use-c) below.
 - **Python**: enforced with the official `ament_flake8` configuration
   ([ament/ament_lint](https://github.com/ament/ament_lint/blob/rolling/ament_flake8/ament_flake8/configuration/ament_flake8.ini)),
   checked into this repo as [`ros2/.flake8`](./.flake8) — 99-column lines, single quotes,
@@ -13,8 +17,9 @@ These packages follow the official ROS 2 code style:
   ament_flake8 runs with (blind-except, builtins, class-newline, comprehensions, deprecated,
   docstrings, import-order, quotes).
 
-GitHub Actions runs both checks on every push and fails the build if the code does not
-conform (see the `lint` job in [`.github/workflows/main.yml`](../.github/workflows/main.yml)).
+GitHub Actions runs these checks on every push and fails the build if the code does not
+conform (see the `lint` job in [`.github/workflows/main.yml`](../.github/workflows/main.yml)
+for clang-format/flake8, and the `build-driver-ros2` job for the IWYU check).
 
 ## Setting up the tools
 
@@ -54,6 +59,53 @@ each package's `package.xml`, but is **not** the source of truth here: `ament_li
 pulls in `ament_uncrustify`/`ament_cpplint`, which enforce a different style than
 `ament_clang_format`. The `lint` GitHub Actions job (running the exact commands above) is
 authoritative.
+
+## Include What You Use (C++)
+
+Every `.cpp` file must directly `#include` the header providing each symbol it uses, and must
+not include headers it doesn't need — the
+[Include What You Use](https://include-what-you-use.org/) (IWYU) principle. This is checked
+with `clang-tidy`'s
+[`misc-include-cleaner`](https://clang.llvm.org/extra/clang-tidy/checks/misc/include-cleaner.html),
+configured in [`ros2/.clang-tidy`](./.clang-tidy).
+
+- `rclcpp/rclcpp.hpp` (the umbrella header) and generated message headers (`<pkg>/msg/*.hpp`)
+  are exempted via `IgnoreHeaders` in `ros2/.clang-tidy`. This matches ROS 2 convention
+  (including the `rclcpp` umbrella rather than its individual headers), and jazzy's `rclcpp`
+  does not ship IWYU pragmas that would let the checker see through it on its own.
+- The check only analyzes the `.cpp` file passed to `clang-tidy`, not the headers it
+  `#include`s. **Header files (`.h`) are not verified by CI** — apply the same discipline by
+  hand when a header directly uses a symbol (e.g. `std::mutex`, `std::vector`).
+- Covers the `cepton_messages`, `cepton_subscriber`, and `cepton_publisher` packages.
+
+GitHub Actions runs this as a step in the `build-driver-ros2` job (a compilation database from
+`colcon build` is required first).
+
+### Checking your changes locally
+
+```bash
+# From the repository root, using the same image CI uses
+docker build . --tag ros2_dev -f ci/Dockerfile.ros2
+docker run --rm -v "$PWD:/app:rw" ros2_dev bash -c '
+cd ros2
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher \
+  --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+jq -s add build/*/compile_commands.json > build/compile_commands.json
+git ls-files "*.cpp" | grep -E "cepton_(publisher|subscriber)/" | xargs clang-tidy -p build
+'
+```
+
+### Editor warnings (optional)
+
+`cpptools` has no IWYU diagnostics, so this repo's default editor setup (see below) won't flag
+include problems inline. To see the same warnings while editing, install the
+[`clangd`](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd)
+extension and point it at a `compile_commands.json` generated as above (clangd looks for it at
+the workspace root or a parent of the source file). clangd uses the same
+`clang-include-cleaner` library as this check and will honor `ros2/.clang-tidy`'s
+`IgnoreHeaders`, so its diagnostics match what CI reports — including the header-file blind
+spot noted above. This is **not** the default for this repo; `cpptools`/format-on-save remains
+the recommended baseline (see [VSCode setup](#vscode-setup)).
 
 ## VSCode setup
 

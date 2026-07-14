@@ -1,5 +1,11 @@
 FROM ros:jazzy
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang-tidy \
+    jq \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global --add safe.directory /app
+
 WORKDIR /app
 
 CMD ["/bin/bash"]

@@ -1,11 +1,9 @@
-#include <chrono>
-#include <functional>
+#include <signal.h>
+
 #include <memory>
-#include <string>
 
 #include "cepton_publisher.h"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
 
 using namespace std;
 void sigterm_handler(int) { rclcpp::shutdown(); }

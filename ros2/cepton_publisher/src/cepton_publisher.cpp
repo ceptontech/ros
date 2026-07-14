@@ -6,12 +6,20 @@
 #include <netinet/in.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <future>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <set>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
-#include "cepton_messages/cepton_messages.h"
+#include "sensor_msgs/point_cloud2_iterator.hpp"
 
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointField = sensor_msgs::msg::PointField;
@@ -691,7 +699,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
       struct in_addr addr;
       inet_aton(expected_ip.c_str(), &addr);
       // handle is in big-endian. inet_aton returns little endian
-      last_points_time_[__bswap_32(addr.s_addr)] = chrono::system_clock::now();
+      last_points_time_[ntohl(addr.s_addr)] = chrono::system_clock::now();
     }
   }
   RCLCPP_DEBUG(this->get_logger(), "Finished constructing");
