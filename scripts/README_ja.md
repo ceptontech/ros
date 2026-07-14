@@ -162,10 +162,43 @@ VistaUltra-N を使用する場合、生 UDP で 1 台あたり約 400 Mbps × 4
 全点設定で ≈ 7.2 Gbps を捌く前提です。Publisher（C++/SDK）と試験 PC 側の要件：
 
 - 帯域を捌ける NIC
-- カーネル受信バッファの拡大（`sysctl net.core.rmem_max` / `rmem_default` など）
+- カーネル**受信**バッファの拡大（`sysctl net.core.rmem_max` / `rmem_default` など）
+- カーネル**送信**バッファの拡大（`sysctl net.core.wmem_max` / `wmem_default`、ROS1 の TCPROS
+  では `net.ipv4.tcp_wmem` の最大値も）。**Publisher（送信側）自身のソケットに効く**ため、
+  受信側だけを拡大しても不十分（下記参照）
 - 負荷が高すぎる場合はドライバをメッセージ縮小ビルドして 1 フレームのデータ量を減らせます
   （ROS1/ROS2 とも `catkin_make` / `colcon build` 時に `-DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF`）。
   ※点数照合（width）はフィールド数に依存しないため縮小ビルドでも成立します
+
+### なぜ送信バッファ（wmem）が重要か
+
+ROS1 の TCPROS は TCP（双方向）なので、フロー制御は受信側だけでなく**送信側（Publisher自身）**の
+ソケットバッファにも依存します。送信バッファが小さいと `publish()` の内部の `write()`/`send()` が
+受信側の読み出し待ちでブロックし、それが **Publisher 自身の publish タイミングのジッタ**として
+直接観測されます（購読側を高速化しても解消しない）。
+
+1 メッセージのサイズは 349,960 点 × 32 B/点 ≈ **11.2 MB**（`aggregation_frame_count=2` なら
+699,920 点 ≈ **22.4 MB**）で、センサ 1 台あたりのデータレートは集約設定によらず一定で
+約 **224 MB/s**（11.2 MB × 20 Hz = 22.4 MB × 10 Hz）です。Ubuntu の典型的な既定値
+（`wmem_default`/`wmem_max` ≈ 208 KB、TCP 自動チューニング上限 `tcp_wmem` 最大値 ≈ 4 MB）は、
+**1 メッセージ自体より小さい**ため、受信側が正常でも `write()` はカーネルが実際にバイトを
+送出するのを待たざるを得ません。「バッファが全く drain されない」と仮定した場合の充填時間
+（バッファサイズ ÷ 224 MB/s）は：
+
+| バッファ | サイズ | 充填時間 |
+|---|---|---|
+| 既定 `wmem_default`/`wmem_max` | ≈208 KB | ≈0.95 ms |
+| TCP 自動チューニング上限（`tcp_wmem` 最大値） | ≈4 MB | ≈18.7 ms |
+| 拡大後（例: 128 MB） | 128 MB | ≈600 ms（count=1 で約12フレーム分） |
+
+つまり既定設定では数十ms程度の受信側の遅延でも即座に送信側がブロックし得ます。`rmem` と
+同様に `wmem`/`tcp_wmem` も拡大することを推奨します：
+
+```bash
+sudo sysctl -w net.core.wmem_max=134217728
+sudo sysctl -w net.core.wmem_default=134217728
+sudo sysctl -w net.ipv4.tcp_wmem="4096 87380 134217728"
+```
 
 ## 実機なしでの動作確認（ドライラン）
 
