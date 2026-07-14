@@ -6,20 +6,30 @@
 #include <netinet/in.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <future>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <set>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
-#include "cepton_messages/cepton_messages.h"
+#include "sensor_msgs/point_cloud2_iterator.hpp"
 
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 using PointField = sensor_msgs::msg::PointField;
 using namespace std::chrono_literals;
 using namespace std;
-namespace cepton_ros {
+namespace cepton_ros
+{
 
-inline void check_sdk_error(int re, const char *msg) {
+inline void check_sdk_error(int re, const char * msg)
+{
   if (re != CEPTON_SUCCESS) {
     cout << "Error: " << re << " " << string(msg) << endl;
   }
@@ -38,8 +48,9 @@ inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
  * nullptr)
  * @return true if parsing succeeded, false otherwise
  */
-bool parse_network_source(const string &source_str, string &ip, uint16_t &port,
-                          string &multicast_group) {
+bool parse_network_source(
+  const string & source_str, string & ip, uint16_t & port, string & multicast_group)
+{
   // Split by ':' delimiter
   size_t first_colon = source_str.find(':');
   if (first_colon == string::npos) {
@@ -77,24 +88,25 @@ bool parse_network_source(const string &source_str, string &ip, uint16_t &port,
 /**
  * SDK callback for point data
  */
-void on_ex_frame(CeptonSensorHandle handle, int64_t start_timestamp,
-                 size_t n_points, const struct CeptonPointEx *points,
-                 void *user_data) {
-  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
+void on_ex_frame(
+  CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points,
+  const struct CeptonPointEx * points, void * user_data)
+{
+  auto * node = reinterpret_cast<CeptonPublisher *>(user_data);
   node->publish_points(handle, start_timestamp, n_points, points);
 }
 
 /**
  * SDK callback for info data
  */
-void on_info(CeptonSensorHandle handle, const struct CeptonSensor *info,
-             void *user_data) {
-  auto *node = reinterpret_cast<CeptonPublisher *>(user_data);
+void on_info(CeptonSensorHandle handle, const struct CeptonSensor * info, void * user_data)
+{
+  auto * node = reinterpret_cast<CeptonPublisher *>(user_data);
   node->publish_info(handle, info);
 }
 
-void CeptonPublisher::publish_info(CeptonSensorHandle handle,
-                                   const struct CeptonSensor *info) {
+void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct CeptonSensor * info)
+{
   // Update the sensor status
   {
     lock_guard<mutex> lock(status_lock_);
@@ -116,27 +128,25 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle,
   msg.status_flags = info->status_flags;
   msg.temperature = info->temperature;
   msg.fault_summary = info->fault_summary;
-  copy(begin(info->fault_entries), end(info->fault_entries),
-       msg.fault_entries.begin());
+  copy(begin(info->fault_entries), end(info->fault_entries), msg.fault_entries.begin());
 
   // Make sure this serial number has the needed publishers
   if (use_sn_for_pcl2_)
-    ensure_pcl2_publisher(handle, "serial_" + to_string(info->serial_number),
-                          serial_points_publisher);
+    ensure_pcl2_publisher(
+      handle, "serial_" + to_string(info->serial_number), serial_points_publisher);
 
   // Publish info on the unified topic
   info_publisher->publish(msg);
 
   // Publish info on the per-sensor info topics.
   // Publish on the sensor-specific topic
-  ensure_info_publisher(handle, "info_handle_" + to_string(handle),
-                        handle_to_info_publisher);
+  ensure_info_publisher(handle, "info_handle_" + to_string(handle), handle_to_info_publisher);
   handle_to_info_publisher[handle]->publish(msg);
 }
 
-void CeptonPublisher::publish_points(CeptonSensorHandle handle,
-                                     int64_t start_timestamp, size_t n_points,
-                                     const CeptonPointEx *points) {
+void CeptonPublisher::publish_points(
+  CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points, const CeptonPointEx * points)
+{
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
@@ -163,7 +173,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   if (aggregated_point_count.find(handle) == aggregated_point_count.end())
     aggregated_point_count[handle] = 0;
 
-  auto &cloud = clouds[handle];
+  auto & cloud = clouds[handle];
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
@@ -187,8 +197,8 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     cloud.header.frame_id = "cepton3";
 
     cloud_modifier.setPointCloud2Fields(
-        n_fields,
-        // clang-format off
+      n_fields,
+      // clang-format off
                 "x", 1, PointField::FLOAT32,
                 "y", 1, PointField::FLOAT32,
                 "z", 1, PointField::FLOAT32,
@@ -206,7 +216,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
                 "elevation", 1, PointField::FLOAT32,
                 "range", 1, PointField::FLOAT32
                 #endif
-        // clang-format on
+      // clang-format on
     );
 
     cloud_modifier.reserve(n_points * aggregation_frame_count_);
@@ -221,17 +231,13 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   auto x_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "x");
   auto y_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "y");
   auto z_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "z");
-  auto intensity_iter =
-      sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
+  auto intensity_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
 
 #ifdef WITH_TS_CH_F
-  auto timestamp_sec_iter =
-      sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
-  auto timestamp_usec_iter =
-      sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_us");
+  auto timestamp_sec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
+  auto timestamp_usec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_us");
   auto flag_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "flags");
-  auto channel_id_iter =
-      sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
+  auto channel_id_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
 #endif
 
 #ifdef WITH_POLAR
@@ -256,7 +262,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   timestamp_usec_iter += iterator_offset;
   flag_iter += iterator_offset;
   channel_id_iter += iterator_offset;
-#endif 
+#endif
 
 #ifdef WITH_POLAR
   azim_iter += iterator_offset;
@@ -274,7 +280,7 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
-    auto const &p0 = points[i];
+    auto const & p0 = points[i];
 
 #ifdef WITH_TS_CH_F
     // Keep timestamp progression aligned with the original point order, even
@@ -317,13 +323,13 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
     const float image_z = z / x;  // vertical tangent
 
     // Filter if the point is outside of the FOV
-    if (image_x < min_image_x_ || image_x > max_image_x_ ||
-        image_z < min_image_z_ || image_z > max_image_z_ ||
-        distance_squared < min_distance_squared ||
-        distance_squared > max_distance_squared) {
-          ++skipped;
-          continue;
-        }
+    if (
+      image_x < min_image_x_ || image_x > max_image_x_ || image_z < min_image_z_ ||
+      image_z > max_image_z_ || distance_squared < min_distance_squared ||
+      distance_squared > max_distance_squared) {
+      ++skipped;
+      continue;
+    }
 
     // x value
     *x_iter = x;
@@ -393,23 +399,21 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
   // Publish. Creating the publish future means we can no longer write buffers
   // until the publish completes.
   {
-    pub_fut_ = std::async(
-        std::launch::async, [this, start_timestamp, n_points, handle, cloud]() {
-          // Publish points
-          points_publisher->publish(cloud);
+    pub_fut_ = std::async(std::launch::async, [this, start_timestamp, n_points, handle, cloud]() {
+      // Publish points
+      points_publisher->publish(cloud);
 
-          // Publish by handle - create publisher if needed
-          if (use_handle_for_pcl2_) {
-            ensure_pcl2_publisher(handle, "handle_" + to_string(handle),
-                                  handle_points_publisher);
-            handle_points_publisher[handle]->publish(cloud);
-          }
+      // Publish by handle - create publisher if needed
+      if (use_handle_for_pcl2_) {
+        ensure_pcl2_publisher(handle, "handle_" + to_string(handle), handle_points_publisher);
+        handle_points_publisher[handle]->publish(cloud);
+      }
 
-          // If info packet is received to link handle to serial number, publish
-          // by serial number
-          if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
-            serial_points_publisher[handle]->publish(cloud);
-        });
+      // If info packet is received to link handle to serial number, publish
+      // by serial number
+      if (serial_points_publisher.count(handle) && use_sn_for_pcl2_)
+        serial_points_publisher[handle]->publish(cloud);
+    });
   }
 }
 
@@ -417,27 +421,26 @@ void CeptonPublisher::publish_points(CeptonSensorHandle handle,
 /// already existing
 /// @param topic
 /// @param m
-void CeptonPublisher::ensure_pcl2_publisher(CeptonSensorHandle handle,
-                                            string const &topic,
-                                            PointPublisherMap &m) {
+void CeptonPublisher::ensure_pcl2_publisher(
+  CeptonSensorHandle handle, string const & topic, PointPublisherMap & m)
+{
   if (!m.count(handle)) {
-    RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu",
-                handle);
+    RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu", handle);
     m[handle] = create_publisher<PointCloud2>(topic, 50);
   }
 }
 
-void CeptonPublisher::ensure_info_publisher(CeptonSensorHandle handle,
-                                            string const &topic,
-                                            InfoPublisherMap &m) {
+void CeptonPublisher::ensure_info_publisher(
+  CeptonSensorHandle handle, string const & topic, InfoPublisherMap & m)
+{
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create info publisher");
-    m[handle] =
-        create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, 10);
+    m[handle] = create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, 10);
   }
 }
 
-CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
+CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
+{
   declare_parameter("capture_file", "");
   declare_parameter("capture_loop", false);
   declare_parameter("sensor_network_sources", std::vector<std::string>{"0.0.0.0:8808"});
@@ -463,17 +466,15 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   declare_parameter("expected_sensor_ips", vector<string>{});
   declare_parameter("aggregation_frame_count", 1);
   aggregation_frame_count_ =
-      static_cast<uint8_t>(get_parameter("aggregation_frame_count").as_int());
+    static_cast<uint8_t>(get_parameter("aggregation_frame_count").as_int());
 
   // Initialize sdk
   int ret = CeptonInitialize(CEPTON_API_VERSION, nullptr);
   check_sdk_error(ret, "CeptonInitialize");
 
-  RCLCPP_INFO(this->get_logger(),
-               "\n\n========== Version: %s ==========\n ", VERSION.c_str());
+  RCLCPP_INFO(this->get_logger(), "\n\n========== Version: %s ==========\n ", VERSION.c_str());
 
-  RCLCPP_DEBUG(this->get_logger(),
-               "========= Point Cloud Output Parameters =========");
+  RCLCPP_DEBUG(this->get_logger(), "========= Point Cloud Output Parameters =========");
 
   // Check whether to output pcl2 points
   rclcpp::Parameter pOutputPcl2 = get_parameter("pcl2_output_type");
@@ -482,34 +483,31 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     use_handle_for_pcl2_ = use_sn_for_pcl2_ = false;
     RCLCPP_DEBUG(this->get_logger(), "Not publishing PCL2 points!");
   } else {
-    RCLCPP_DEBUG(this->get_logger(), "Publishing PCL2 points with: %s",
-                 pcl2_output_type.c_str());
+    RCLCPP_DEBUG(this->get_logger(), "Publishing PCL2 points with: %s", pcl2_output_type.c_str());
 
-    use_handle_for_pcl2_ =
-        pcl2_output_type == "IP" || pcl2_output_type == "BOTH";
-    RCLCPP_DEBUG(this->get_logger(), "\tPublishing PCL2 points with handle: %s",
-                 use_handle_for_pcl2_ ? "true" : "false");
+    use_handle_for_pcl2_ = pcl2_output_type == "IP" || pcl2_output_type == "BOTH";
+    RCLCPP_DEBUG(
+      this->get_logger(), "\tPublishing PCL2 points with handle: %s",
+      use_handle_for_pcl2_ ? "true" : "false");
 
     use_sn_for_pcl2_ = pcl2_output_type == "SN" || pcl2_output_type == "BOTH";
-    RCLCPP_DEBUG(this->get_logger(), "\tPublishing PCL2 points with SN: %s",
-                 use_sn_for_pcl2_ ? "true" : "false");
+    RCLCPP_DEBUG(
+      this->get_logger(), "\tPublishing PCL2 points with SN: %s",
+      use_sn_for_pcl2_ ? "true" : "false");
     points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
 
     // Register callback
-    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame,
-                               this);
+    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame, this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
-  RCLCPP_DEBUG(this->get_logger(),
-               "=================================================");
+  RCLCPP_DEBUG(this->get_logger(), "=================================================");
 
   // ---------------------------------
   // Set up the sensor info publishing
   {
     // Create publisher
     RCLCPP_INFO(this->get_logger(), "Creating info publisher");
-    info_publisher = create_publisher<cepton_messages::msg::CeptonSensorInfo>(
-        "cepton_info", 10);
+    info_publisher = create_publisher<cepton_messages::msg::CeptonSensorInfo>("cepton_info", 10);
     // Register callback
     ret = CeptonListenSensorInfo(on_info, this);
     check_sdk_error(ret, "CeptonListenSensorInfo");
@@ -520,8 +518,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   {
     RCLCPP_INFO(this->get_logger(), "Creating status publisher");
     sensor_status_publisher =
-        create_publisher<cepton_messages::msg::CeptonSensorStatus>(
-            "cepton_sensor_status", 5);
+      create_publisher<cepton_messages::msg::CeptonSensorStatus>("cepton_sensor_status", 5);
 
     // Start the status monitor
     sensor_status_thread = thread([&]() {
@@ -534,15 +531,14 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
           // Update status messages for each sensor
           auto now = chrono::system_clock::now();
 
-          for (auto const &[handle, last_points_time] : last_points_time_) {
+          for (auto const & [handle, last_points_time] : last_points_time_) {
             if (now - last_points_time > SENSOR_POINTS_TIMEOUT) {
-              timed_out_sensors[handle] = handle_to_serial_number_.count(handle)
-                                              ? handle_to_serial_number_[handle]
-                                              : 0;
+              timed_out_sensors[handle] =
+                handle_to_serial_number_.count(handle) ? handle_to_serial_number_[handle] : 0;
             }
           }
         }
-        for (auto const &[handle, serial_number] : timed_out_sensors) {
+        for (auto const & [handle, serial_number] : timed_out_sensors) {
           auto msg = cepton_messages::msg::CeptonSensorStatus();
           msg.serial_number = serial_number;
           msg.handle = handle;
@@ -554,50 +550,49 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     });
   }
 
-  RCLCPP_DEBUG(this->get_logger(),
-               "============= Point Flag Parameters =============");
+  RCLCPP_DEBUG(this->get_logger(), "============= Point Flag Parameters =============");
 
   // Check whether to keep flagged points
   rclcpp::Parameter pKeepSaturated = get_parameter("include_saturated_points");
   include_flag_ |= (pKeepSaturated.as_bool() ? CEPTON_POINT_SATURATED : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Saturated points: %s",
-               pKeepSaturated.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Saturated points: %s",
+    pKeepSaturated.as_bool() ? "true" : "false");
   // keep frame low_snr/parity/boundary as internal for now
 
-  rclcpp::Parameter pKeepSecondReturn =
-      get_parameter("include_second_return_points");
-  include_flag_ |=
-      (pKeepSecondReturn.as_bool() ? CEPTON_POINT_SECOND_RETURN : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Second Return points: %s",
-               pKeepSecondReturn.as_bool() ? "true" : "false");
+  rclcpp::Parameter pKeepSecondReturn = get_parameter("include_second_return_points");
+  include_flag_ |= (pKeepSecondReturn.as_bool() ? CEPTON_POINT_SECOND_RETURN : 0);
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Second Return points: %s",
+    pKeepSecondReturn.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepInvalid = get_parameter("include_invalid_points");
   include_flag_ |= (pKeepInvalid.as_bool() ? CEPTON_POINT_NO_RETURN : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Invalid (No Return) points: %s",
-               pKeepInvalid.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Invalid (No Return) points: %s",
+    pKeepInvalid.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepNoise = get_parameter("include_noise_points");
   include_flag_ |= (pKeepNoise.as_bool() ? CEPTON_POINT_NOISE : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Noise points: %s",
-               pKeepNoise.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Noise points: %s", pKeepNoise.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepBlocked = get_parameter("include_blocked_points");
   include_flag_ |= (pKeepBlocked.as_bool() ? CEPTON_POINT_BLOCKED : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Blocked points: %s",
-               pKeepBlocked.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Blocked points: %s", pKeepBlocked.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepRetro = get_parameter("include_retro_points");
   include_flag_ |= (pKeepRetro.as_bool() ? CEPTON_POINT_RETRO : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Retro points: %s",
-               pKeepRetro.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Retro points: %s", pKeepRetro.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepAmbient = get_parameter("include_ambient_points");
   include_flag_ |= (pKeepAmbient.as_bool() ? CEPTON_POINT_AMBIENT : 0);
-  RCLCPP_DEBUG(this->get_logger(), "Including Ambient points: %s",
-               pKeepAmbient.as_bool() ? "true" : "false");
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Ambient points: %s", pKeepAmbient.as_bool() ? "true" : "false");
 
-  RCLCPP_DEBUG(this->get_logger(),
-               "=================================================");
+  RCLCPP_DEBUG(this->get_logger(), "=================================================");
 
   uint32_t control_flags = 0;
 
@@ -642,13 +637,12 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     // If running replay, check for flags
     rclcpp::Parameter capturePlayLoop = get_parameter("capture_loop");
     int flag = 0;
-    if (capturePlayLoop.get_type() !=
-            rclcpp::ParameterType::PARAMETER_NOT_SET &&
-        capturePlayLoop.as_bool()) {
+    if (
+      capturePlayLoop.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET &&
+      capturePlayLoop.as_bool()) {
       flag |= CEPTON_REPLAY_FLAG_PLAY_LOOPED;
     }
-    ret = CeptonReplayLoadPcap(captureFile.as_string().c_str(), flag,
-                               &replay_handle);
+    ret = CeptonReplayLoadPcap(captureFile.as_string().c_str(), flag, &replay_handle);
     check_sdk_error(ret, "CeptonReplayLoadPcap");
   } else {
     // Add networking sources for UDP data from specified network sources.
@@ -660,29 +654,29 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
     }
 
     // Add a networking source for each configured source string
-    for (const auto &source_str : sources) {
+    for (const auto & source_str : sources) {
       std::string ip;
       uint16_t port;
       std::string multicast_group;
 
       if (!parse_network_source(source_str, ip, port, multicast_group)) {
-        RCLCPP_ERROR(this->get_logger(),
-                     "Failed to parse network source: %s", source_str.c_str());
+        RCLCPP_ERROR(this->get_logger(), "Failed to parse network source: %s", source_str.c_str());
         continue;
       }
 
       // Convert empty IP string or "0.0.0.0" to nullptr for SDK
-      const char *ip_ptr = (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
-      const char *multicast_ptr = multicast_group.empty() ? nullptr : multicast_group.c_str();
+      const char * ip_ptr = (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
+      const char * multicast_ptr = multicast_group.empty() ? nullptr : multicast_group.c_str();
 
-      RCLCPP_INFO(this->get_logger(),
-                  "Add networking source: ip=%s, port=%d, multicast=%s",
-                  ip_ptr ? ip_ptr : "0.0.0.0", port,
-                  multicast_ptr ? multicast_ptr : "none");
+      RCLCPP_INFO(
+        this->get_logger(), "Add networking source: ip=%s, port=%d, multicast=%s",
+        ip_ptr ? ip_ptr : "0.0.0.0", port, multicast_ptr ? multicast_ptr : "none");
 
       ret = CeptonAddNetworkingSource(ip_ptr, port, multicast_ptr);
       if (ret != CEPTON_SUCCESS) {
-          std::cout << "Source not added successfully, check that sensor is configured properly and running: " << source_str.c_str() << std::endl;
+        std::cout
+          << "Source not added successfully, check that sensor is configured properly and running: "
+          << source_str.c_str() << std::endl;
       }
 
       // Store for cleanup
@@ -698,31 +692,31 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher") {
   // points within the limit. By default, sensors would be discovered lazily.
   // This lets us raise an error message if an expected sensor was not connected
   // properly to the PC.
-  if (p_expected_sensor_ips.get_type() !=
-      rclcpp::ParameterType::PARAMETER_NOT_SET) {
+  if (p_expected_sensor_ips.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
     RCLCPP_DEBUG(this->get_logger(), "Set expected sensor IPs");
     auto expected_sensor_ips = p_expected_sensor_ips.as_string_array();
-    for (auto const &expected_ip : expected_sensor_ips) {
+    for (auto const & expected_ip : expected_sensor_ips) {
       struct in_addr addr;
       inet_aton(expected_ip.c_str(), &addr);
       // handle is in big-endian. inet_aton returns little endian
-      last_points_time_[__bswap_32(addr.s_addr)] = chrono::system_clock::now();
+      last_points_time_[ntohl(addr.s_addr)] = chrono::system_clock::now();
     }
   }
   RCLCPP_DEBUG(this->get_logger(), "Finished constructing");
 }
 
-CeptonPublisher::~CeptonPublisher() {
+CeptonPublisher::~CeptonPublisher()
+{
   // Stop the status thread and wait for it to join
   stopping_ = true;
   if (sensor_status_thread.joinable()) sensor_status_thread.join();
 
   // Remove all networking sources
-  for (const auto &source : networking_sources_) {
-    const char *ip_ptr =
-        (source.ip.empty() || source.ip == "0.0.0.0") ? nullptr : source.ip.c_str();
-    const char *multicast_ptr =
-        source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
+  for (const auto & source : networking_sources_) {
+    const char * ip_ptr =
+      (source.ip.empty() || source.ip == "0.0.0.0") ? nullptr : source.ip.c_str();
+    const char * multicast_ptr =
+      source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
     int ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
     check_sdk_error(ret, "CeptonRemoveNetworkingSource");
   }

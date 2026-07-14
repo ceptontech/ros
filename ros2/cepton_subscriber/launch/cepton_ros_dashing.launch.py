@@ -6,9 +6,9 @@ def generate_launch_description():
     return LaunchDescription(
         [
             Node(
-                package="cepton_subscriber",
-                executable="cepton_subscriber_node",
-                name="cepton_subscriber_node",
+                package='cepton_subscriber',
+                executable='cepton_subscriber_node',
+                name='cepton_subscriber_node',
             )
         ]
     )

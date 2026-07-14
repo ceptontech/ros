@@ -2,6 +2,9 @@
 ### Supported Platforms
 - Ubuntu 20.04 LTS `amd64`/`arm64` + ROS Noetic Ninjemys
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the coding style this package follows and how
+to run the formatter/linter.
+
 # Cepton ROS Publisher Nodelet Configuration Guide
 
 This guide covers all configuration options available for the Cepton ROS Publisher Nodelet based on the implementation in `publisher_nodelet.cpp`.

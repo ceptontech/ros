@@ -1,0 +1,5 @@
+Checks: '-*,misc-include-cleaner'
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(cepton_publisher|cepton_subscriber)/include/.*'
+CheckOptions:
+  misc-include-cleaner.IgnoreHeaders: 'rclcpp/.*;.*/msg/.*'

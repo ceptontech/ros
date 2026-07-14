@@ -1,0 +1,4 @@
+# Bulk reformats to ROS official coding styles.
+# Configure with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+044b4062e294cdfcd25a3e1f2957b6a4067f6147 style: bulk reformat C++ sources to ROS official coding styles
+743dfda692b139c31d7508cef7d54ecc64890f3d style: bulk reformat Python sources to ROS official coding styles
