@@ -869,7 +869,8 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     # primary series (solid); the per-frame instantaneous rate is a faint
     # background layer. Y is clipped so the tolerance band stays readable. ---
     fig, ax = plt.subplots(figsize=(11, 5))
-    ymax = nominal_hz * 2.0
+    ymax = nominal_hz * 1.5
+    ymin = nominal_hz * 0.666
     clipped = 0
     for idx, sd in enumerate(sorted(sensors.values(), key=lambda s: s.topic)):
         times = basis_times(sd)
@@ -889,7 +890,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
                linewidth=1.2, label="upper bound %.2f Hz" % (nominal_hz + win_tol))
     if warmup > 0:
         ax.axvspan(0, warmup, color="0.9", label="warmup (excluded)")
-    ax.set_ylim(0, ymax)
+    ax.set_ylim(ymin, ymax)
     style_handles = [
         Line2D([0], [0], color="0.4", linewidth=1.2,
                label="windowed mean (%.1fs)" % window),

@@ -3,3 +3,4 @@ install/
 log/
 *.zip
 __pycache__/
+stability_output/

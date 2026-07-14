@@ -1,16 +1,21 @@
 # YAML configuration file for loading default parameters into PubsliherNodelet
 capture_path: ""
-capture_loop: true
-sensor_network_sources: ["0.0.0.0:8808"] # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
+capture_loop: false
+sensor_network_sources: [
+  "192.168.10.2:10101",
+  "192.168.10.2:10102",
+  "192.168.10.2:10103",
+  "192.168.10.2:10104"
+] # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
 include_saturated_points: true
 include_second_return_points: true
-include_invalid_points: false
-include_noise_points: false
+include_invalid_points: true
+include_noise_points: true
 include_blocked_points: true
 include_retro_points: true
 include_retro_weak_points: true
 include_ambient_points: true # set to false if ambient mode is not enabled from firmware
-output_by_handle: true
+output_by_handle: false
 output_by_sn: true
 min_altitude: -90.
 max_altitude: 90.
