@@ -4,8 +4,8 @@ capture_loop: true
 sensor_network_sources: ["0.0.0.0:8808"] # Format: "ip:port" or "ip:port:multicast". Empty list uses default 0.0.0.0:8808
 include_saturated_points: true
 include_second_return_points: true
-include_invalid_points: false
-include_noise_points: false
+include_invalid_points: true
+include_noise_points: true
 include_blocked_points: true
 include_retro_points: true
 include_retro_weak_points: true
@@ -19,10 +19,11 @@ max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
 aggregate_frames: false
-timestamp_mode: delta # delta, frame_offset, absolute
-mirror_sync_csv_path: "mirror_sync.csv" # Creates mirror_sync_000001.csv, etc. Empty string disables output. Azimuth is in radians.
-mirror_sync_interval_sec: 20.0 # Start a measurement every 20 seconds.
-mirror_sync_duration_sec: 1.0 # Record for one second in each interval.
+# Mirror-sync CSV export requires the absolute timestamp point type.
+timestamp_mode: absolute # delta, frame_offset, absolute
+mirror_sync_csv_path: "/home/koito/デスクトップ/mirror_sync.csv" # Creates mirror_sync_000001.csv, etc. Empty string disables output. Azimuth is in radians.
+mirror_sync_interval_sec: 10.0 # Start a measurement every 10 seconds.
+mirror_sync_duration_sec: 3.0 # Record for three seconds in each interval.
 
 # In ROS, unlike in ROS2, this needs to be set to an empty
 # list if not using the expected lidars feature.

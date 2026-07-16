@@ -772,10 +772,30 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
 #endif
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
+  int64_t time_sync_offset = info->time_sync_offset;
+  bool reused_time_sync_offset = false;
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
-    handle_to_time_sync_offset_[info->handle] = info->time_sync_offset;
+
+    auto offset_it = handle_to_time_sync_offset_.find(info->handle);
+    if (time_sync_offset != 0) {
+      handle_to_time_sync_offset_[info->handle] = time_sync_offset;
+    } else if (offset_it != handle_to_time_sync_offset_.end() &&
+               offset_it->second != 0) {
+      time_sync_offset = offset_it->second;
+      reused_time_sync_offset = true;
+    } else {
+      // No valid value has been received for this sensor yet.
+      handle_to_time_sync_offset_[info->handle] = 0;
+    }
+  }
+
+  if (reused_time_sync_offset) {
+    ROS_WARN_THROTTLE(1.0,
+                      "Received zero time_sync_offset for sensor %u; reusing "
+                      "the previous value: %ld us",
+                      info->serial_number, static_cast<long>(time_sync_offset));
   }
 
   // Create a points publisher by handle
@@ -823,7 +843,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info) {
   msg.part_number = info->part_number;
   msg.firmware_version = info->firmware_version;
   msg.power_up_timestamp = info->power_up_timestamp;
-  msg.time_sync_offset = info->time_sync_offset;
+  msg.time_sync_offset = time_sync_offset;
   msg.time_sync_drift = info->time_sync_drift;
   msg.return_count = info->return_count;
   msg.channel_count = info->channel_count;
