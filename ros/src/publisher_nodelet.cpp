@@ -476,11 +476,15 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
   // Make sure the previous publish has finished before reusing a cloud buffer.
   if (pub_fut_.valid())
   {
-    if (pub_fut_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-    {
-      ROS_WARN_THROTTLE(1.0, "Point cloud publishing is not keeping up; waiting for the previous publish");
-    }
+    const auto wait_start = std::chrono::steady_clock::now();
     pub_fut_.wait();
+    const auto wait_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
+
+    if (wait_ms >= 1.0)
+    {
+      ROS_WARN_THROTTLE(1.0, "Waited %.3f ms for the previous point cloud publish", wait_ms);
+    }
   }
 
   // Update the sensor status
