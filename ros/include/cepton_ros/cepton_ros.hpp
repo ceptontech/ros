@@ -15,9 +15,11 @@
 #pragma message("✅ polar-coordinate fields are enabled")
 #endif
 
-namespace cepton_ros {
+namespace cepton_ros
+{
 
-struct Point {
+struct Point
+{
   float x;
   float y;
   float z;

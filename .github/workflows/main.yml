@@ -3,7 +3,10 @@ name: ros-drivers
 on:
   push:
     branches:
-      - '**'
+      - main
+  pull_request:
+    branches:
+      - main
 
 
 jobs:
@@ -15,13 +18,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build docker image
-        run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile.ros2
+        run: docker build . --tag ci_ros2_$GITHUB_SHA -f ci/Dockerfile.ros2
 
       - name: Run tests
         run: |
-            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_rust_$GITHUB_SHA bash -ex -c '
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_$GITHUB_SHA bash -ex -c '
             cd ros2
-            colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
+            colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher \
+              --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            '
+
+      - name: Include What You Use (clang-tidy misc-include-cleaner)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_$GITHUB_SHA bash -ex -c '
+            cd ros2
+            jq -s add build/*/compile_commands.json > build/compile_commands.json
+            git ls-files "*.cpp" | grep -E "cepton_(publisher|subscriber)/" | xargs clang-tidy -p build
             '
 
   build-driver-ros1:
@@ -32,14 +45,70 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build docker image
-        run: docker build . --tag ci_rust_$GITHUB_SHA -f ci/Dockerfile.ros1
+        run: docker build . --tag ci_ros1_$GITHUB_SHA -f ci/Dockerfile.ros1
 
       - name: Run tests
         run: |
-            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_rust_$GITHUB_SHA bash -ex -c '
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros1_$GITHUB_SHA bash -ex -c '
             cd /catkin_ws/src
             ln -s /app/ros
 
             cd /catkin_ws
             catkin_make
             '
+
+  lint:
+    name: Coding style (clang-format + flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build docker image
+        run: docker build . --tag ci_lint_$GITHUB_SHA -f ci/Dockerfile.lint
+
+      - name: clang-format check (ROS1, ROS CppStyleGuide)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros/*.cpp" "ros/*.hpp" | xargs clang-format --dry-run -Werror
+            '
+
+      - name: clang-format check (ROS2, ament_clang_format style)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros2/*.cpp" "ros2/*.h" "ros2/*.hpp" | xargs clang-format --dry-run -Werror
+            '
+
+      - name: flake8 (ROS1, PEP 8)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros/*.py" | xargs flake8 --config=ros/.flake8
+            '
+
+      - name: flake8 (ROS2, ament_flake8 configuration)
+        if: success() || failure()
+        run: |
+            docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_lint_$GITHUB_SHA bash -ex -c '
+            git ls-files "ros2/*.py" | xargs flake8 --config=ros2/.flake8
+            '
+
+  ci-success:
+    name: CI success
+    runs-on: ubuntu-latest
+    needs:
+      - build-driver-ros2
+      - build-driver-ros1
+      - lint
+    if: always()
+    steps:
+      - name: Check all required jobs succeeded
+        run: |
+            if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+              echo "One or more required jobs did not succeed:"
+              echo '${{ toJSON(needs) }}'
+              exit 1
+            fi
+            echo "All required jobs succeeded."

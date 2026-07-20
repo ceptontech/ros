@@ -1,16 +1,15 @@
-#include <chrono>
-#include <functional>
+#include <signal.h>
+
 #include <memory>
-#include <string>
 
 #include "cepton_publisher.h"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
 
 using namespace std;
 void sigterm_handler(int) { rclcpp::shutdown(); }
 
-int main(int argc, char** argv) {
+int main(int argc, char ** argv)
+{
   rclcpp::init(argc, argv);
 
   struct sigaction action;

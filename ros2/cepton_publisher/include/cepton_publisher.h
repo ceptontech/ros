@@ -1,12 +1,14 @@
 #pragma once
 #include <chrono>
-#include <cmath>
-#include <cstdio>
-#include <functional>
+#include <cstddef>
+#include <cstdint>
+#include <future>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
@@ -14,45 +16,44 @@
 #include "cepton_sdk3.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
-#include "sensor_msgs/point_cloud2_iterator.hpp"
-#include "std_msgs/msg/string.hpp"
 
-namespace cepton_ros {
+namespace cepton_ros
+{
 
 // update this when making changes, will display in terminal running publisher
 using String = std::string;
 String VERSION = "v2.1.1";
 
-enum SensorStatusFlags : uint32_t { SENSOR_TIMED_OUT = 1 << 0 };
+enum SensorStatusFlags : uint32_t
+{
+  SENSOR_TIMED_OUT = 1 << 0
+};
 
 /**
  * @brief Class definition for the CeptonPublisher component
  */
-class CeptonPublisher : public rclcpp::Node {
- public:
-  using PointPublisher =
-      rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
-  using PointPublisherMap =
-      std::unordered_map<CeptonSensorHandle, PointPublisher>;
-  using InfoPublisher =
-      rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr;
-  using InfoPublisherMap =
-      std::unordered_map<CeptonSensorHandle, InfoPublisher>;
-  using StatusPublisher =
-      rclcpp::Publisher<cepton_messages::msg::CeptonSensorStatus>::SharedPtr;
+class CeptonPublisher : public rclcpp::Node
+{
+public:
+  using PointPublisher = rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
+  using PointPublisherMap = std::unordered_map<CeptonSensorHandle, PointPublisher>;
+  using InfoPublisher = rclcpp::Publisher<cepton_messages::msg::CeptonSensorInfo>::SharedPtr;
+  using InfoPublisherMap = std::unordered_map<CeptonSensorHandle, InfoPublisher>;
+  using StatusPublisher = rclcpp::Publisher<cepton_messages::msg::CeptonSensorStatus>::SharedPtr;
   using SerialNumberMap = std::unordered_map<CeptonSensorHandle, uint32_t>;
 
   CeptonPublisher();
   ~CeptonPublisher();
 
- private:
+private:
   CeptonReplayHandle replay_handle = 0;
 
   /**
    * Store network source information (ip, port, multicast_group) for cleanup
    * on shutdown
    */
-  struct NetworkSource {
+  struct NetworkSource
+  {
     std::string ip;
     uint16_t port;
     std::string multicast_group;
@@ -88,9 +89,8 @@ class CeptonPublisher : public rclcpp::Node {
   /**
    * @brief Store the last time each sensor received some points.
    */
-  std::unordered_map<CeptonSensorHandle,
-                     std::chrono::time_point<std::chrono::system_clock>>
-      last_points_time_;
+  std::unordered_map<CeptonSensorHandle, std::chrono::time_point<std::chrono::system_clock>>
+    last_points_time_;
 
   SerialNumberMap handle_to_serial_number_;
 
@@ -102,7 +102,7 @@ class CeptonPublisher : public rclcpp::Node {
 
   const rclcpp::NodeOptions options;
 
-    /* Based on config params, bit is flipped as 1 for point flags that should be
+  /* Based on config params, bit is flipped as 1 for point flags that should be
         included, while 0 if excluded The pre-included flags are "ignored," either
         because it is for internal use only (hence no config to include them) or
         because it is deprecated.
@@ -110,16 +110,15 @@ class CeptonPublisher : public rclcpp::Node {
         Ambient point information exists for all points. Newer SDKs use bit (1 << 3).
         versions.
     */
-    const uint16_t CEPTON_POINT_AMBIENT = 1 << 3;  // set in yaml file
+  const uint16_t CEPTON_POINT_AMBIENT = 1 << 3;  // set in yaml file
 
-    // SDK 21+ use bit 14 for SPAD column metadata. Allow it by default so the
-    // include filter does not drop valid points.
-    // Allow the point regardless of L or R columns
-    const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
+  // SDK 21+ use bit 14 for SPAD column metadata. Allow it by default so the
+  // include filter does not drop valid points.
+  // Allow the point regardless of L or R columns
+  const uint16_t CEPTON_POINT_SPAD_COLUMN = 1 << 14;
 
-    uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
-                                                     CEPTON_POINT_FRAME_BOUNDARY |
-                                                     CEPTON_POINT_SPAD_COLUMN;
+  uint16_t include_flag_ = CEPTON_POINT_BLOOMING | CEPTON_POINT_FRAME_PARITY |
+                           CEPTON_POINT_FRAME_BOUNDARY | CEPTON_POINT_SPAD_COLUMN;
 
   /** If true, publish pcl2 by sensor handle */
   bool use_handle_for_pcl2_{true};
@@ -142,17 +141,18 @@ class CeptonPublisher : public rclcpp::Node {
 
   uint8_t aggregation_frame_count_{1};
 
-  void ensure_pcl2_publisher(CeptonSensorHandle handle,
-                             std::string const& topic, PointPublisherMap& m);
-  void ensure_info_publisher(CeptonSensorHandle handle,
-                             std::string const& topic, InfoPublisherMap& m);
+  void ensure_pcl2_publisher(
+    CeptonSensorHandle handle, std::string const & topic, PointPublisherMap & m);
+  void ensure_info_publisher(
+    CeptonSensorHandle handle, std::string const & topic, InfoPublisherMap & m);
   std::future<void> pub_fut_;
 
- public:
-  void publish_points(CeptonSensorHandle handle, int64_t start_timestamp,
-                      size_t n_points, const CeptonPointEx* points);
+public:
+  void publish_points(
+    CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points,
+    const CeptonPointEx * points);
 
-  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor* info);
+  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor * info);
 };
 
 }  // namespace cepton_ros

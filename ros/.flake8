@@ -1,0 +1,8 @@
+[flake8]
+# ROS1 PyStyleGuide = PEP 8 (http://wiki.ros.org/PyStyleGuide)
+max-line-length = 79
+# Restrict to pycodestyle/pyflakes/mccabe so ROS2-only flake8 plugins
+# (quotes, import-order, docstrings, ...) do not apply to the ROS1 tree.
+select = E,W,F,C90
+show-source = true
+statistics = true

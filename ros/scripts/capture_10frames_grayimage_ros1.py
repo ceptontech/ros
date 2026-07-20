@@ -17,14 +17,17 @@ DEFAULT_GRAYIMAGE_SCRIPT = (
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Run the ROS1 one-frame capture script 10 times, then convert each "
-            "CSV to a grayscale PNG with the ROS2 gray image script."
+            "Run the ROS1 one-frame capture script 10 times, then convert "
+            "each CSV to a grayscale PNG with the ROS2 gray image script."
         )
     )
     parser.add_argument(
         "--topic",
         default="/cepton3/points",
-        help="PointCloud2 topic name for ROS1 capture (default: /cepton3/points)",
+        help=(
+            "PointCloud2 topic name for ROS1 capture "
+            "(default: /cepton3/points)"
+        ),
     )
     parser.add_argument(
         "--count",
@@ -114,7 +117,9 @@ def main():
         return 2
 
     if not grayimage_script.is_file():
-        print(f"gray image script not found: {grayimage_script}", file=sys.stderr)
+        print(
+            f"gray image script not found: {grayimage_script}",
+            file=sys.stderr)
         return 2
 
     csv_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +150,8 @@ def main():
         if capture_result.returncode != 0:
             failures += 1
             print(
-                f"capture failed for frame {index}: exit {capture_result.returncode}",
+                f"capture failed for frame {index}: "
+                f"exit {capture_result.returncode}",
                 file=sys.stderr,
             )
             if not args.keep_going:
@@ -168,7 +174,8 @@ def main():
         if convert_result.returncode != 0:
             failures += 1
             print(
-                f"conversion failed for frame {index}: exit {convert_result.returncode}",
+                f"conversion failed for frame {index}: "
+                f"exit {convert_result.returncode}",
                 file=sys.stderr,
             )
             if not args.keep_going:
