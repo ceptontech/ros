@@ -20,9 +20,13 @@
 namespace cepton_ros
 {
 
-// update this when making changes, will display in terminal running publisher
+// version is generated from package.xml at build time, will display in
+// terminal running publisher
+#ifndef CEPTON_PUBLISHER_VERSION
+#define CEPTON_PUBLISHER_VERSION "unknown"
+#endif
 using String = std::string;
-String VERSION = "v2.1.1";
+inline String VERSION = CEPTON_PUBLISHER_VERSION;
 
 enum SensorStatusFlags : uint32_t
 {
