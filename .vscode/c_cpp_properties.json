@@ -1,18 +1,18 @@
 {
     "configurations": [
         {
-            "name": "",
+            "name": "ROS2",
             "intelliSenseMode": "linux-gcc-x64",
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c17",
             "cppStandard": "gnu++17",
             "includePath": [
-                "${workspaceFolder}/../cepton-sdk-3.0.23.1/include",
+                "${workspaceFolder}/cepton-sdk-3.0.23.1/include",
                 "/opt/ros/${env:ROS_DISTRO}/include/**",
                 "/usr/include/eigen3/",
-                "${workspaceFolder}/cepton_publisher/include",
-                "${workspaceFolder}/cepton_subscriber/include",
-                "${workspaceFolder}/install/cepton_messages/include"
+                "${workspaceFolder}/ros2/cepton_publisher/include",
+                "${workspaceFolder}/ros2/cepton_subscriber/include",
+                "${workspaceFolder}/ros2/install/cepton_messages/include/cepton_messages"
             ]
         }
     ],
