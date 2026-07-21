@@ -29,6 +29,8 @@ struct CeptonPointEx
 
 CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber")
 {
+  RCLCPP_INFO(this->get_logger(), "\n\n========== Version: %s ==========\n ", VERSION.c_str());
+
   bool subscribePcl2 = false;
   bool subscribeCeptonInfo = false;
   bool subscribeCeptonPanic = false;

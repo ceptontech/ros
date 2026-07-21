@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.5)
 project(cepton_publisher)
 
+# Read the package version from package.xml so it doesn't need to be
+# duplicated in source code
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/package.xml" PACKAGE_XML_CONTENT)
+string(REGEX MATCH "<version>([^<]*)</version>" _ ${PACKAGE_XML_CONTENT})
+set(CEPTON_PUBLISHER_VERSION "v${CMAKE_MATCH_1}")
+
 # Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
 option(WITH_POLAR "Compile point types with polar coordinates" ON)
 option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
@@ -61,6 +67,8 @@ add_library(${PROJECT_NAME} SHARED src/cepton_publisher.cpp)
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
                           $<INSTALL_INTERFACE:${PROJECT_NAME}/include>)
+target_compile_definitions(
+  ${PROJECT_NAME} PUBLIC CEPTON_PUBLISHER_VERSION="${CEPTON_PUBLISHER_VERSION}")
 
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)
 
