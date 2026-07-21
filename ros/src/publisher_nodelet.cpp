@@ -609,10 +609,13 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle,
     const auto wait_start = std::chrono::steady_clock::now();
     pub_fut_.wait();
     const auto wait_ms =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
-      if (wait_ms >= 1.0) {
-        ROS_WARN_THROTTLE(1.0, "Waited %.3f ms for the previous point cloud publish", wait_ms)
-      }
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - wait_start)
+            .count();
+    if (wait_ms >= 1.0) {
+      ROS_WARN_THROTTLE(
+          1.0, "Waited %.3f ms for the previous point cloud publish", wait_ms);
+    }
   }
 
   // Update the sensor status
@@ -738,8 +741,8 @@ void PublisherNodelet::write_mirror_sync_csv(CeptonSensorHandle handle,
     if (it == handle_to_serial_number_.end()) {
       ROS_WARN_THROTTLE(1.0,
                         "Skipping mirror sync CSV rows until sensor info is "
-                        "available for handle %u",
-                        handle);
+                        "available for handle %llu",
+                        static_cast<unsigned long long>(handle));
       return;
     };
     sensor_id = it->second;
