@@ -11,7 +11,7 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
- 
+
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
@@ -34,7 +34,7 @@ find_package(rclcpp_components REQUIRED)
 ###################################################################
 # Link the SDK, first get the binaries for the correct architecture
 
-set(SDK_VERSION 3.0.23.1)
+set(SDK_VERSION 3.0.23.3)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
   set(SDK_SOURCE  ${PROJECT_SOURCE_DIR}/../../cepton-sdk-${SDK_VERSION}/lib/linux-x64)
