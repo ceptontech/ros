@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>stability_probe</name>
+  <version>0.1.0</version>
+  <description>
+    Lightweight arrival-time probe for PointCloud2 topics.
+    Records arrival time, header.stamp and width per message to CSV,
+    without touching the point payload. Used by scripts/stability_test.py
+    as the data-plane measurement for driver stability testing.
+  </description>
+  <maintainer email="sensor@koito.co.jp">Koito Manufacturing Co., Ltd.</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
