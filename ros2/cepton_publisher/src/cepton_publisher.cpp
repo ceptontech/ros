@@ -314,10 +314,11 @@ void CeptonPublisher::publish_points(
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) {
+    
+    /*if (distance_squared >= 500 * 500) {
       ++skipped;
       continue;
-    }
+    }*/
 
     const float image_x = y / x;  // horizontal tangent
     const float image_z = z / x;  // vertical tangent
@@ -456,6 +457,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   declare_parameter("include_noise_points", false);
   declare_parameter("include_blocked_points", true);
   declare_parameter("include_retro_points", true);
+  declare_parameter("include_retro_weak_points", true);
   declare_parameter("include_ambient_points", true);
   declare_parameter("min_altitude", -90.);
   declare_parameter("max_altitude", 90.);
@@ -586,6 +588,12 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   include_flag_ |= (pKeepRetro.as_bool() ? CEPTON_POINT_RETRO : 0);
   RCLCPP_DEBUG(
     this->get_logger(), "Including Retro points: %s", pKeepRetro.as_bool() ? "true" : "false");
+
+  rclcpp::Parameter pKeepRetroWeak = get_parameter("include_retro_weak_points");
+  include_flag_ |= (pKeepRetroWeak.as_bool() ? CEPTON_POINT_RETRO_WEAK : 0);
+  RCLCPP_DEBUG(
+    this->get_logger(), "Including Retro Weak points: %s",
+    pKeepRetroWeak.as_bool() ? "true" : "false");
 
   rclcpp::Parameter pKeepAmbient = get_parameter("include_ambient_points");
   include_flag_ |= (pKeepAmbient.as_bool() ? CEPTON_POINT_AMBIENT : 0);
