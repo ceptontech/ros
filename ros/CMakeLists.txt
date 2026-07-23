@@ -136,3 +136,8 @@ add_executable(cepton_subscriber src/cepton_subscriber.cpp)
 target_link_libraries(cepton_subscriber ${catkin_LIBRARIES})
 install(TARGETS cepton_subscriber
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+catkin_install_python(
+  PROGRAMS scripts/plot_channel_azimuth_ros1.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
