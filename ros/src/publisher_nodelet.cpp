@@ -473,6 +473,17 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
   // Store the parity of each cloud. This may be used for 2-frames aggregation
   static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
 
+  if (pub_fut_.valid()) {
+    const auto wait_start = std::chrono::steady_clock::now();
+    pub_fut_.wait();
+    const auto wait_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
+
+      if (wait_ms >= 1.0) {
+        ROS_WARN_THROTTLE(1.0, "waited %.3f ms for the previous point cloud publish", wait_ms);
+      }
+  }
+
   // Update the sensor status
   {
     std::lock_guard<std::mutex> lock(status_lock_);
@@ -512,8 +523,8 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
   // Publish the point cloud
   {
     // If the last publish is still pending, wait for it to finish
-    if (pub_fut_.valid())
-      pub_fut_.wait();
+    //if (pub_fut_.valid())
+    //  pub_fut_.wait();
 
     // Launch a new process to do the publishing
     pub_fut_ = std::async(std::launch::async, [this, handle, start_timestamp]() {
