@@ -1,8 +1,16 @@
 #include <memory>
+#include <string>
 
 #include "cepton_messages/msg/cepton_sensor_info.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+
+// version is generated from package.xml at build time, will display in
+// terminal running subscriber
+#ifndef CEPTON_SUBSCRIBER_VERSION
+#define CEPTON_SUBSCRIBER_VERSION "unknown"
+#endif
+inline std::string VERSION = CEPTON_SUBSCRIBER_VERSION;
 
 class CeptonSubscriber : public rclcpp::Node
 {

@@ -554,6 +554,7 @@ CEPTON_EXPORT int CeptonRegisterParser(CeptonParserCallback callback,
  */
 CEPTON_EXPORT int CeptonUnregisterParser(CeptonParserCallback callback,
                                          void *user_data);
+
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT 0x0
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_TOF 0x1
 #define CEPTON_SDK_CONTROL_FLAG_RETURN_FIRST (0x1 << 1)

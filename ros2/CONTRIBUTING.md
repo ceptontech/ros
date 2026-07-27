@@ -107,6 +107,18 @@ the workspace root or a parent of the source file). clangd uses the same
 spot noted above. This is **not** the default for this repo; `cpptools`/format-on-save remains
 the recommended baseline (see [VSCode setup](#vscode-setup)).
 
+## Versioning
+
+Each package's `<version>` in its `package.xml` (e.g.
+[`cepton_publisher/package.xml`](./cepton_publisher/package.xml)) follows
+[Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`, incrementing
+
+- **MAJOR** for incompatible API/behavior changes,
+- **MINOR** for backwards-compatible functionality additions,
+- **PATCH** for backwards-compatible bug fixes.
+
+Bump the version as part of any PR that changes a package's behavior.
+
 ## VSCode setup
 
 1. Open this repository (either the repo root or the `ros2/` folder) in VSCode.
