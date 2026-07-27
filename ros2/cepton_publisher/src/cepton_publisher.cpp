@@ -314,10 +314,10 @@ void CeptonPublisher::publish_points(
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
     // now)
-    if (distance_squared >= 500 * 500) {
-      ++skipped;
-      continue;
-    }
+    // if (distance_squared >= 500 * 500) {
+    //   ++skipped;
+    //   continue;
+    // }
 
     const float image_x = y / x;  // horizontal tangent
     const float image_z = z / x;  // vertical tangent
