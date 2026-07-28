@@ -63,6 +63,37 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 
 ## Point Filtering Options
 
+### characteristic point
+Dependending on the lidar, some point flags may not be supported.
+
+#### `iclude_saturated_points`
+- **Description**: The point at which the brightness exceeds the maximum level that the photon sensor can detect.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_second_return_points`
+- **Description**: The point there two reflective objects: the surface of the glass and an object behind the glass.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_invalid_points`
+- **Description**: The point that could not be measured.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_blocked_points`
+- **Description**: The point where dirt or other debris is stuck.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_retro_points`
+- **Description**: The point that retroreflective object. Examples include road signs.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_retro_weak_points`
+- **Description**: The point on a weak retroreflective object that does not exceed the retro-point threshold.
+- **Usage**: set to `true`, that feature points will be published.
+
+#### `iclude_ambient_points`
+- **Description**: The point where brightness was measured while the laser was not emitting light.
+- **Usage**: set to `true`, that feature points will be published.
+
 ### Spatial Filtering
 
 #### `min_altitude` (double, default: -90.0)
@@ -185,3 +216,16 @@ ros2 run cepton_publisher cepton_publisher_node --ros-args --params-file /path/t
 - **Timeout Duration**: 3 seconds (configurable via `SENSOR_POINTS_TIMEOUT`)
 - **Monitoring Thread**: Runs every 1 second to check sensor status
 - **Timeout Action**: Publishes `CeptonSensorStatus` message with `SENSOR_TIMED_OUT` status
+
+## Note
+In particular, when you connect multiple lidar units, the data traffic becomes so massive 
+that packet loss often occurs.
+
+Please adjust the settings, such as by increasing the receive buffer size.
+
+```bash
+sudo sysctl -w net.core.rmem_max=2000000000
+sudo sysctl -w net.core.rmem_default=536870912
+sudo sysctl -w net.core.netdev_max_backlog=10000
+```
+The above is just one example. Please adjust the numbers as appropriate.
