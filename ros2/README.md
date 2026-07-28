@@ -63,7 +63,7 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 
 ## Point Filtering Options
 
-### characteristic point
+### Point Flag Filtering
 Dependending on the lidar, some point flags may not be supported.
 
 #### `iclude_saturated_points`
