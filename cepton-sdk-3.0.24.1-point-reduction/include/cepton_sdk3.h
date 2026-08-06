@@ -669,6 +669,8 @@ CEPTON_EXPORT int CeptonUnlistenPointsEx(CeptonPointsExCallback callback,
  * Aggregate mode definition:
  *  0 (default) for "natural" frames as defined by the sensor.
  *  Positive number enables timed aggregation with number of microseconds.
+ *  -1 / -2 for single-parity mode keeping the left / right scan parity (see
+ *  CEPTON_AGGREGATION_MODE_SINGLE_PARITY_LEFT / _RIGHT).
  *
  * NOTE: Any positive number above 1000 is allowed, but when frame exceeds
  * maximum number of points per frame, callback will be triggered even before
@@ -678,6 +680,11 @@ enum {
   CEPTON_AGGREGATION_MODE_NATURAL = 0,
   CEPTON_AGGREGATION_MODE_FIXED_10Hz = 100000,
   // CEPTON_AGGREGATION_MODE_FIXED_20Hz = 50000,
+  // Aggregate by parity but emit only the selected scan parity (drop the other): halves the frame
+  // rate and the downstream calibration load at the cost of scan-line density. _LEFT/_RIGHT pick
+  // which scan parity is kept.
+  CEPTON_AGGREGATION_MODE_SINGLE_PARITY_LEFT = -1,
+  CEPTON_AGGREGATION_MODE_SINGLE_PARITY_RIGHT = -2,
 };
 
 /**
