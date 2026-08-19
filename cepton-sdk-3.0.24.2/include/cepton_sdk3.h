@@ -88,7 +88,7 @@ enum {
  *
  * @return Error code name string converted from int. "" if unrecognized.
  */
-CEPTON_EXPORT const char *CeptonGetErrorCodeName(int error_code);
+CEPTON_EXPORT const char* CeptonGetErrorCodeName(int error_code);
 
 /**
  * Get the SDK version (not the same as API version)
@@ -150,6 +150,9 @@ enum {
   CEPTON_POINT_NOISE = 1 << 6,
   CEPTON_POINT_BLOCKED = 1 << 7,
   CEPTON_POINT_RETRO = 1 << 8,
+  // Missing from the upstream 3.0.24.2 header, but the sensors do report the
+  // bit. Re-check this when bumping the SDK: if upstream adds the enumerator
+  // back, drop this line to avoid a duplicate definition.
   CEPTON_POINT_RETRO_WEAK = 1 << 9,
 };
 
@@ -176,7 +179,8 @@ struct CeptonPointEx {
 
 struct CeptonSensor {
   // Size of the CeptonSensor struct
-  // plus any consecutive sensor info blocks
+  // NOTE: `CeptonSensorInfoCallback` and `CeptonGetSensorInformation` receive
+  // different values of this field.
   uint32_t info_size;
 
   // per sensor info
@@ -199,12 +203,14 @@ struct CeptonSensor {
 
   // Config
   uint8_t return_count;
-  uint8_t channel_count;
-  uint16_t reserved;
+  uint8_t channel_count_legacy;  // truncated to 8 bits, see channel_count
+  uint16_t channel_count;        // full 16-bit channel count
   uint32_t status_flags;
 
   // Unit in 0.01 Kelvin
   uint16_t temperature;
+
+  uint8_t padding[2];
 
   // Fault summary about sensor status.
   // Can be interpreted using CEPTON_FAULT_SUMMARY_*** bitmasks
@@ -218,6 +224,7 @@ struct CeptonPanicMessage {
   uint32_t serial_number;
   uint32_t fault_identity;
   uint32_t life_counter;
+  uint8_t padding[4];
   uint64_t ptp_timestamp;
 };
 
@@ -248,8 +255,8 @@ enum _CeptonSensorStatusFlags {
  * @param error_data_size Error payload size.
  */
 typedef void (*CeptonSensorErrorCallback)(CeptonSensorHandle handle,
-                                          int error_code, const char *error_msg,
-                                          const void *error_data,
+                                          int error_code, const char* error_msg,
+                                          const void* error_data,
                                           size_t error_data_size);
 
 /**
@@ -319,7 +326,7 @@ CEPTON_EXPORT int CeptonStartNetworkingOnPort(uint16_t port);
  * unspecified.
  * @param port Required, use 8808 if lidar has the factory default port.
  */
-CEPTON_EXPORT int CeptonStartNetworkingUnicast(const char *localIfAddress,
+CEPTON_EXPORT int CeptonStartNetworkingUnicast(const char* localIfAddress,
                                                uint16_t port);
 
 /**
@@ -329,8 +336,8 @@ CEPTON_EXPORT int CeptonStartNetworkingUnicast(const char *localIfAddress,
  * unspecified.
  * @param port Required, use 8808 if lidar has the factory default port.
  */
-CEPTON_EXPORT int CeptonStartNetworkingMulticast(const char *targetMcastGroup,
-                                                 const char *localIfAddress,
+CEPTON_EXPORT int CeptonStartNetworkingMulticast(const char* targetMcastGroup,
+                                                 const char* localIfAddress,
                                                  uint16_t port);
 
 /**
@@ -351,8 +358,8 @@ CEPTON_EXPORT int CeptonStopNetworking(void);
  * unicast operation.
  * @return CEPTON_SUCCESS on success, error code otherwise.
  */
-CEPTON_EXPORT int CeptonAddNetworkingSource(const char *ip, uint16_t port,
-                                            const char *multicast_group);
+CEPTON_EXPORT int CeptonAddNetworkingSource(const char* ip, uint16_t port,
+                                            const char* multicast_group);
 
 /**
  * Remove a networking source.
@@ -365,8 +372,8 @@ CEPTON_EXPORT int CeptonAddNetworkingSource(const char *ip, uint16_t port,
  * sources.
  * @return CEPTON_SUCCESS on success, error code otherwise.
  */
-CEPTON_EXPORT int CeptonRemoveNetworkingSource(const char *ip, uint16_t port,
-                                               const char *multicast_group);
+CEPTON_EXPORT int CeptonRemoveNetworkingSource(const char* ip, uint16_t port,
+                                               const char* multicast_group);
 
 //------------------------------------------------------------------------------
 // Replay
@@ -397,8 +404,23 @@ const uint32_t CEPTON_REPLAY_FLAG_LOAD_PAUSED = 4;
  *  CEPTON_ERROR_INVALID_STATE: too many loaded pcaps.
  *  CEPTON_ERROR_FILE_IO: load failed, file IO or format error.
  */
-CEPTON_EXPORT int CeptonReplayLoadPcap(const char *pcapFileName, uint32_t flags,
-                                       CeptonReplayHandle *pHandle);
+CEPTON_EXPORT int CeptonReplayLoadPcap(const char* pcapFileName, uint32_t flags,
+                                       CeptonReplayHandle* pHandle);
+
+/**
+ * Load a Cepton Replay (.cr) file. By default, it will start indexing and plays
+ * async. Will need to be unloaded in the end. The same replay control calls
+ * (play/pause/seek/etc.) used for pcap apply to the returned handle.
+ * @param crFileName .cr file path for replay.
+ * @param flags CEPTON_REPLAY_FLAG_LOAD_WITHOUT_INDEX,
+ * CEPTON_REPLAY_FLAG_PLAY_LOOPED and CEPTON_REPLAY_FLAG_LOAD_PAUSED.
+ * @param pHandle this will need to be passed in other replay calls.
+ * @return CEPTON_SUCCESS or error code.
+ *  CEPTON_ERROR_INVALID_STATE: too many loaded files.
+ *  CEPTON_ERROR_FILE_IO: load failed, wrong file type, file IO or format error.
+ */
+CEPTON_EXPORT int CeptonReplayLoadCr(const char *crFileName, uint32_t flags,
+                                     CeptonReplayHandle *pHandle);
 
 /**
  * Unload the pcap.
@@ -407,7 +429,13 @@ CEPTON_EXPORT int CeptonReplayLoadPcap(const char *pcapFileName, uint32_t flags,
 CEPTON_EXPORT int CeptonReplayUnloadPcap(CeptonReplayHandle);
 
 /**
- * Unload all loaded pcaps.
+ * Unload a loaded .cr file.
+ * @param {CeptonReplayHandle} cr handle.
+ */
+CEPTON_EXPORT int CeptonReplayUnloadCr(CeptonReplayHandle);
+
+/**
+ * Unload all loaded replay files (pcap and cr).
  */
 CEPTON_EXPORT int CeptonReplayUnloadAll();
 
@@ -538,8 +566,8 @@ CEPTON_EXPORT int CeptonReplayIsPaused(CeptonReplayHandle handle);
  * @returns 0 to indicate data is handled.
  */
 typedef int (*CeptonParserCallback)(CeptonSensorHandle handle,
-                                    int64_t timestamp, const uint8_t *data,
-                                    size_t data_size, void *user_data);
+                                    int64_t timestamp, const uint8_t* data,
+                                    size_t data_size, void* user_data);
 
 /**
  * Register a parser. Unique parsers are determined by the pair of callback and
@@ -547,13 +575,13 @@ typedef int (*CeptonParserCallback)(CeptonSensorHandle handle,
  * parsers.
  */
 CEPTON_EXPORT int CeptonRegisterParser(CeptonParserCallback callback,
-                                       void *user_data);
+                                       void* user_data);
 
 /**
  * Remove a parser. Only remove when both callback and user_data matches.
  */
 CEPTON_EXPORT int CeptonUnregisterParser(CeptonParserCallback callback,
-                                         void *user_data);
+                                         void* user_data);
 
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_AMBIENT 0x0
 #define CEPTON_SDK_CONTROL_FLAG_PARSE_TOF 0x1
@@ -573,20 +601,20 @@ CEPTON_EXPORT int CeptonSetSdkControlFlags(uint32_t flags);
  * @param user_data User data passed during registration.
  */
 typedef void (*CeptonSensorInfoCallback)(CeptonSensorHandle handle,
-                                         const struct CeptonSensor *info,
-                                         void *user_data);
+                                         const struct CeptonSensor* info,
+                                         void* user_data);
 
 /**
  * Register a callback to receive sensor information.
  */
 CEPTON_EXPORT int CeptonListenSensorInfo(CeptonSensorInfoCallback callback,
-                                         void *user_data);
+                                         void* user_data);
 
 /**
  * Remove a sensor information callback.
  */
 CEPTON_EXPORT int CeptonUnlistenSensorInfo(CeptonSensorInfoCallback callback,
-                                           void *user_data);
+                                           void* user_data);
 
 /**
  * Get number of sensors attached.
@@ -606,7 +634,7 @@ CEPTON_EXPORT int CeptonGetSensorCount(void);
  * @return 0 for success (info populated), negative for failure.
  */
 CEPTON_EXPORT int CeptonGetSensorInformationByIndex(size_t idx,
-                                                    struct CeptonSensor *info);
+                                                    struct CeptonSensor* info);
 
 /**
  * Get sensor information by the handle
@@ -615,7 +643,7 @@ CEPTON_EXPORT int CeptonGetSensorInformationByIndex(size_t idx,
  * @return 0 for success (info populated), negative for failure.
  */
 CEPTON_EXPORT int CeptonGetSensorInformation(CeptonSensorHandle handle,
-                                             struct CeptonSensor *info);
+                                             struct CeptonSensor* info);
 
 /**
  * Get sensor information by serial number
@@ -624,7 +652,7 @@ CEPTON_EXPORT int CeptonGetSensorInformation(CeptonSensorHandle handle,
  * @return 0 for success (info populated), negative for failure.
  */
 CEPTON_EXPORT int CeptonGetSensorInformationBySerialNumber(
-    uint32_t serial_number, struct CeptonSensor *info);
+    uint32_t serial_number, struct CeptonSensor* info);
 
 //------------------------------------------------------------------------------
 // Point Cloud Data
@@ -651,19 +679,19 @@ CEPTON_EXPORT int CeptonGetSensorInformationBySerialNumber(
  */
 typedef void (*CeptonPointsExCallback)(CeptonSensorHandle handle,
                                        int64_t start_timestamp, size_t n_points,
-                                       const struct CeptonPointEx *points,
-                                       void *user_data);
+                                       const struct CeptonPointEx* points,
+                                       void* user_data);
 /**
  * Register a callback to receive point cloud data.
  */
 CEPTON_EXPORT int CeptonListenPointsEx(CeptonPointsExCallback callback,
-                                       void *user_data);
+                                       void* user_data);
 
 /**
  * Remove a point cloud data callback.
  */
 CEPTON_EXPORT int CeptonUnlistenPointsEx(CeptonPointsExCallback callback,
-                                         void *user_data);
+                                         void* user_data);
 
 /**
  * Aggregate mode definition:
@@ -692,7 +720,7 @@ enum {
  */
 CEPTON_EXPORT int CeptonListenFramesEx(int aggregationMode,
                                        CeptonPointsExCallback callback,
-                                       void *user_data);
+                                       void* user_data);
 
 /**
  * Remove a point cloud data frame callback.
@@ -701,7 +729,7 @@ CEPTON_EXPORT int CeptonListenFramesEx(int aggregationMode,
  * aggregation altogether. After that aggregationMode can be changed.
  */
 CEPTON_EXPORT int CeptonUnlistenFramesEx(CeptonPointsExCallback callback,
-                                         void *user_data);
+                                         void* user_data);
 
 //------------------------------------------------------------------------------
 // Panic Message
@@ -714,20 +742,20 @@ CEPTON_EXPORT int CeptonUnlistenFramesEx(CeptonPointsExCallback callback,
  * @param user_data User data passed during registration.
  */
 typedef void (*CeptonSensorPanicCallback)(
-    CeptonSensorHandle handle, const struct CeptonPanicMessage *panic_packet,
-    void *user_data);
+    CeptonSensorHandle handle, const struct CeptonPanicMessage* panic_packet,
+    void* user_data);
 
 /**
  * Register a callback to receive panic messages from the sensor.
  */
 CEPTON_EXPORT int CeptonListenPanic(CeptonSensorPanicCallback callback,
-                                    void *user_data);
+                                    void* user_data);
 
 /**
  * Remove a panic message callback.
  */
 CEPTON_EXPORT int CeptonUnlistenPanic(CeptonSensorPanicCallback callback,
-                                      void *user_data);
+                                      void* user_data);
 
 //------------------------------------------------------------------------------
 // Frame FIFO Support (experimental)
@@ -767,7 +795,7 @@ struct CeptonPointExData {
   CeptonSensorHandle handle;
   int64_t start_timestamp;
   size_t n_points;
-  const struct CeptonPointEx *points;
+  const struct CeptonPointEx* points;
 };
 
 /**
@@ -790,7 +818,7 @@ struct CeptonPointExData {
  *   CEPTON_ERROR_TIMEOUT: If get frame timeout.
  *   CEPTON_ERROR_INVALID_ARGUMENTS: If pPointData is NULL.
  */
-CEPTON_EXPORT int CeptonFrameFifoExGet(struct CeptonPointExData *pPointData,
+CEPTON_EXPORT int CeptonFrameFifoExGet(struct CeptonPointExData* pPointData,
                                        int maxWaitTime);
 
 /**
