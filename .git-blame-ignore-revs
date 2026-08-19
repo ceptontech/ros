@@ -2,3 +2,4 @@
 # Configure with: git config blame.ignoreRevsFile .git-blame-ignore-revs
 044b4062e294cdfcd25a3e1f2957b6a4067f6147 style: bulk reformat C++ sources to ROS official coding styles
 743dfda692b139c31d7508cef7d54ecc64890f3d style: bulk reformat Python sources to ROS official coding styles
+a0f7301d049e3afe4d517df864e33f0d3e799c0b style: bind * and & to the type in ROS2 sources

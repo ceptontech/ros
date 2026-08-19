@@ -5,7 +5,8 @@ These packages follow the official ROS 2 code style:
 - **C++**: [ROS 2 Code Style](https://docs.ros.org/en/rolling/The-ROS2-Project/Contributing/Code-Style-Language-Versions.html),
   enforced with the official `ament_clang_format` configuration
   ([ament/ament_lint](https://github.com/ament/ament_lint/blob/rolling/ament_clang_format/ament_clang_format/configuration/.clang-format)),
-  checked into this repo as [`ros2/.clang-format`](./.clang-format).
+  checked into this repo as [`ros2/.clang-format`](./.clang-format) with one deliberate
+  deviation, see [Pointer and reference alignment](#pointer-and-reference-alignment) below.
 - **C++ includes**: every header that provides a symbol a `.cpp` file uses must be included
   directly ([Include What You Use](https://include-what-you-use.org/)), checked with
   `clang-tidy`'s `misc-include-cleaner`, configured in [`ros2/.clang-tidy`](./.clang-tidy).
@@ -59,6 +60,33 @@ each package's `package.xml`, but is **not** the source of truth here: `ament_li
 pulls in `ament_uncrustify`/`ament_cpplint`, which enforce a different style than
 `ament_clang_format`. The `lint` GitHub Actions job (running the exact commands above) is
 authoritative.
+
+## Pointer and reference alignment
+
+`*` and `&` bind to the type, with no space between the type name and the symbol:
+
+```cpp
+const CeptonSensor* info;
+void publish_points(CeptonSensorHandle handle, const CeptonPointEx* points);
+std::string& ip;
+```
+
+This is `PointerAlignment: Left` in [`ros2/.clang-format`](./.clang-format), and it is the
+only change this repo makes to the upstream `ament_clang_format` configuration, which uses
+`Middle` (`const CeptonSensor * info`). Departing from the official ROS 2 style here was a
+deliberate decision, for two reasons, in order of weight:
+
+1. **Consistency with the SDK and the ROS1 package (primary).** The vendored SDK header
+   (`cepton-sdk-*/include/cepton_sdk3.h`) and [`ros/.clang-format`](../ros/.clang-format)
+   both bind the symbol to the type. ROS2 was the only place using a different rule, so
+   reading across the driver and the SDK API meant switching conventions.
+2. **`Middle` is an uncommon convention (secondary).** None of clang-format's built-in
+   styles use it: Google, Chromium, Mozilla and WebKit use `Left`, and LLVM, Microsoft and
+   GNU use `Right`. It is therefore also the option least likely to match what a contributor
+   already writes by habit.
+
+`ReferenceAlignment` is left at its default (`Pointer`), so references follow whatever
+`PointerAlignment` is set to.
 
 ## Include What You Use (C++)
 
