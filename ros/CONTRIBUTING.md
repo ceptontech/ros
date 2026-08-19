@@ -45,6 +45,20 @@ git ls-files 'ros/*.cpp' 'ros/*.hpp' | xargs clang-format --dry-run -Werror
 git ls-files 'ros/*.py' | xargs flake8 --config=ros/.flake8
 ```
 
+## Pointer and reference alignment
+
+`*` and `&` bind to the type, with no space between the type name and the symbol:
+
+```cpp
+const CeptonSensor* info;
+std::string& ip;
+```
+
+[`ros/.clang-format`](./.clang-format) already enforces this through `PointerBindsToType: true`,
+the legacy spelling of `PointerAlignment: Left`, which clang-format still honors. The ROS2
+package follows the same rule, see
+[`ros2/CONTRIBUTING.md`](../ros2/CONTRIBUTING.md#pointer-and-reference-alignment).
+
 ## VSCode setup
 
 1. Open this repository (either the repo root or the `ros/` folder) in VSCode.

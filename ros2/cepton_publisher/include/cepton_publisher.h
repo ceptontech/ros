@@ -146,17 +146,17 @@ private:
   uint8_t aggregation_frame_count_{1};
 
   void ensure_pcl2_publisher(
-    CeptonSensorHandle handle, std::string const & topic, PointPublisherMap & m);
+    CeptonSensorHandle handle, std::string const& topic, PointPublisherMap& m);
   void ensure_info_publisher(
-    CeptonSensorHandle handle, std::string const & topic, InfoPublisherMap & m);
+    CeptonSensorHandle handle, std::string const& topic, InfoPublisherMap& m);
   std::future<void> pub_fut_;
 
 public:
   void publish_points(
     CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points,
-    const CeptonPointEx * points);
+    const CeptonPointEx* points);
 
-  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor * info);
+  void publish_info(CeptonSensorHandle handle, const struct CeptonSensor* info);
 };
 
 }  // namespace cepton_ros

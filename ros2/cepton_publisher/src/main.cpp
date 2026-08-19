@@ -8,7 +8,7 @@
 using namespace std;
 void sigterm_handler(int) { rclcpp::shutdown(); }
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
 
