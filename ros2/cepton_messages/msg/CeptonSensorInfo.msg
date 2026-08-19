@@ -8,7 +8,7 @@ int64 power_up_timestamp
 int64 time_sync_offset
 int64 time_sync_drift
 uint8 return_count
-uint8 channel_count
+uint16 channel_count
 uint32 status_flags
 uint16 temperature
 uint32 fault_summary
