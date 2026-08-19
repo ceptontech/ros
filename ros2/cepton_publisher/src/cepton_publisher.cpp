@@ -28,7 +28,7 @@ using namespace std;
 namespace cepton_ros
 {
 
-inline void check_sdk_error(int re, const char * msg)
+inline void check_sdk_error(int re, const char* msg)
 {
   if (re != CEPTON_SUCCESS) {
     cout << "Error: " << re << " " << string(msg) << endl;
@@ -49,7 +49,7 @@ inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
  * @return true if parsing succeeded, false otherwise
  */
 bool parse_network_source(
-  const string & source_str, string & ip, uint16_t & port, string & multicast_group)
+  const string& source_str, string& ip, uint16_t& port, string& multicast_group)
 {
   // Split by ':' delimiter
   size_t first_colon = source_str.find(':');
@@ -90,22 +90,22 @@ bool parse_network_source(
  */
 void on_ex_frame(
   CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points,
-  const struct CeptonPointEx * points, void * user_data)
+  const struct CeptonPointEx* points, void* user_data)
 {
-  auto * node = reinterpret_cast<CeptonPublisher *>(user_data);
+  auto* node = reinterpret_cast<CeptonPublisher*>(user_data);
   node->publish_points(handle, start_timestamp, n_points, points);
 }
 
 /**
  * SDK callback for info data
  */
-void on_info(CeptonSensorHandle handle, const struct CeptonSensor * info, void * user_data)
+void on_info(CeptonSensorHandle handle, const struct CeptonSensor* info, void* user_data)
 {
-  auto * node = reinterpret_cast<CeptonPublisher *>(user_data);
+  auto* node = reinterpret_cast<CeptonPublisher*>(user_data);
   node->publish_info(handle, info);
 }
 
-void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct CeptonSensor * info)
+void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct CeptonSensor* info)
 {
   // Update the sensor status
   {
@@ -116,7 +116,7 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct Cepto
   auto msg = cepton_messages::msg::CeptonSensorInfo();
   msg.serial_number = info->serial_number;
   msg.handle = handle;
-  msg.model_name = reinterpret_cast<char const *>(info->model_name);
+  msg.model_name = reinterpret_cast<char const*>(info->model_name);
   msg.model = info->model;
   msg.part_number = info->part_number;
   msg.firmware_version = info->firmware_version;
@@ -145,7 +145,7 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct Cepto
 }
 
 void CeptonPublisher::publish_points(
-  CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points, const CeptonPointEx * points)
+  CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points)
 {
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
@@ -173,7 +173,7 @@ void CeptonPublisher::publish_points(
   if (aggregated_point_count.find(handle) == aggregated_point_count.end())
     aggregated_point_count[handle] = 0;
 
-  auto & cloud = clouds[handle];
+  auto& cloud = clouds[handle];
 
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
@@ -280,7 +280,7 @@ void CeptonPublisher::publish_points(
   size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
-    auto const & p0 = points[i];
+    auto const& p0 = points[i];
 
 #ifdef WITH_TS_CH_F
     // Keep timestamp progression aligned with the original point order, even
@@ -422,7 +422,7 @@ void CeptonPublisher::publish_points(
 /// @param topic
 /// @param m
 void CeptonPublisher::ensure_pcl2_publisher(
-  CeptonSensorHandle handle, string const & topic, PointPublisherMap & m)
+  CeptonSensorHandle handle, string const& topic, PointPublisherMap& m)
 {
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu", handle);
@@ -431,7 +431,7 @@ void CeptonPublisher::ensure_pcl2_publisher(
 }
 
 void CeptonPublisher::ensure_info_publisher(
-  CeptonSensorHandle handle, string const & topic, InfoPublisherMap & m)
+  CeptonSensorHandle handle, string const& topic, InfoPublisherMap& m)
 {
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create info publisher");
@@ -532,14 +532,14 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
           // Update status messages for each sensor
           auto now = chrono::system_clock::now();
 
-          for (auto const & [handle, last_points_time] : last_points_time_) {
+          for (auto const& [handle, last_points_time] : last_points_time_) {
             if (now - last_points_time > SENSOR_POINTS_TIMEOUT) {
               timed_out_sensors[handle] =
                 handle_to_serial_number_.count(handle) ? handle_to_serial_number_[handle] : 0;
             }
           }
         }
-        for (auto const & [handle, serial_number] : timed_out_sensors) {
+        for (auto const& [handle, serial_number] : timed_out_sensors) {
           auto msg = cepton_messages::msg::CeptonSensorStatus();
           msg.serial_number = serial_number;
           msg.handle = handle;
@@ -661,7 +661,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
     }
 
     // Add a networking source for each configured source string
-    for (const auto & source_str : sources) {
+    for (const auto& source_str : sources) {
       std::string ip;
       uint16_t port;
       std::string multicast_group;
@@ -672,8 +672,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
       }
 
       // Convert empty IP string or "0.0.0.0" to nullptr for SDK
-      const char * ip_ptr = (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
-      const char * multicast_ptr = multicast_group.empty() ? nullptr : multicast_group.c_str();
+      const char* ip_ptr = (ip.empty() || ip == "0.0.0.0") ? nullptr : ip.c_str();
+      const char* multicast_ptr = multicast_group.empty() ? nullptr : multicast_group.c_str();
 
       RCLCPP_INFO(
         this->get_logger(), "Add networking source: ip=%s, port=%d, multicast=%s",
@@ -702,7 +702,7 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   if (p_expected_sensor_ips.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
     RCLCPP_DEBUG(this->get_logger(), "Set expected sensor IPs");
     auto expected_sensor_ips = p_expected_sensor_ips.as_string_array();
-    for (auto const & expected_ip : expected_sensor_ips) {
+    for (auto const& expected_ip : expected_sensor_ips) {
       struct in_addr addr;
       inet_aton(expected_ip.c_str(), &addr);
       // handle is in big-endian. inet_aton returns little endian
@@ -719,10 +719,10 @@ CeptonPublisher::~CeptonPublisher()
   if (sensor_status_thread.joinable()) sensor_status_thread.join();
 
   // Remove all networking sources
-  for (const auto & source : networking_sources_) {
-    const char * ip_ptr =
+  for (const auto& source : networking_sources_) {
+    const char* ip_ptr =
       (source.ip.empty() || source.ip == "0.0.0.0") ? nullptr : source.ip.c_str();
-    const char * multicast_ptr =
+    const char* multicast_ptr =
       source.multicast_group.empty() ? nullptr : source.multicast_group.c_str();
     int ret = CeptonRemoveNetworkingSource(ip_ptr, source.port, multicast_ptr);
     check_sdk_error(ret, "CeptonRemoveNetworkingSource");
