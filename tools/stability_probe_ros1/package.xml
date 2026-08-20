@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>stability_probe</name>
+  <version>0.1.0</version>
+  <description>
+    Lightweight arrival-time probe for PointCloud2 topics.
+    Records arrival time, header.stamp and width per message to CSV,
+    without touching the point payload. Used by scripts/stability_test.py
+    as the data-plane measurement for driver stability testing.
+  </description>
+  <maintainer email="sensor@koito.co.jp">Koito Manufacturing Co., Ltd.</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>roscpp</depend>
+  <depend>sensor_msgs</depend>
+</package>
