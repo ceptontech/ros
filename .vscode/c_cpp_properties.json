@@ -7,7 +7,7 @@
             "cStandard": "c17",
             "cppStandard": "gnu++17",
             "includePath": [
-                "${workspaceFolder}/cepton-sdk-3.0.24.3/include",
+                "${workspaceFolder}/cepton-sdk-3.0.24.3-dc211d1/include",
                 "/opt/ros/${env:ROS_DISTRO}/include/**",
                 "/usr/include/eigen3/",
                 "${workspaceFolder}/ros2/cepton_publisher/include",
