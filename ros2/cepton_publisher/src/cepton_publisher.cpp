@@ -498,7 +498,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
     points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
 
     // Register callback
-    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame, this);
+    // Experimental: keep only the right scan parity to halve the point rate.
+    ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_SINGLE_PARITY_RIGHT, on_ex_frame, this);
     check_sdk_error(ret, "CeptonListenFramesEx");
   }
   RCLCPP_DEBUG(this->get_logger(), "=================================================");
