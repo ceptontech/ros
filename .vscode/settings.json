@@ -84,7 +84,7 @@
     "flake8.cwd": "${fileDirname}",
     "autopep8.cwd": "${fileDirname}",
     "flake8.ignorePatterns": [
-        "cepton-sdk-3.0.24.2/**",
+        "cepton-sdk-3.0.24.3/**",
         "ros2/build/**",
         "ros2/install/**",
         "ros2/log/**"
