@@ -2,10 +2,11 @@
 """Long-duration stability test for the Cepton ROS1/ROS2 point cloud publisher.
 
 Launches the publisher against live sensors, subscribes to the per-sensor point
-cloud topics, and evaluates:
+cloud topics and to the sensor info topic, and evaluates:
   - publish rate (instantaneous, rostopic-hz-`-w 1`-equivalent) within tolerance
   - per-frame point count stability (every frame identical)
   - frame drops (gaps in the observed publish cadence)
+  - sensor info publish rate per sensor (nominal 2 Hz +/- 0.5)
   - publisher process liveness (no abnormal exit within the duration)
   - publisher CPU / memory not growing without bound
 
@@ -28,7 +29,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -242,6 +243,85 @@ class SensorData:
         self.widths.append(width)
 
 
+class SensorInfoData:
+    """Sensor info messages received for one serial number."""
+
+    def __init__(self, serial_number):
+        self.serial_number = serial_number
+        self.arrivals = []  # wall-clock receive time (float sec)
+        self.records = []   # decoded message fields (sensor_info_record)
+
+    def add(self, arrival, record):
+        self.arrivals.append(arrival)
+        self.records.append(record)
+
+
+# Integer fields carried by both cepton_ros/SensorInformation (ROS1) and
+# cepton_messages/CeptonSensorInfo (ROS2).
+INFO_INT_FIELDS = (
+    "serial_number", "handle", "model", "part_number", "firmware_version",
+    "power_up_timestamp", "time_sync_offset", "time_sync_drift",
+    "return_count", "channel_count", "status_flags", "temperature",
+    "fault_summary",
+)
+
+# CeptonSensor.status_flags / fault_summary bit names (cepton_sdk3.h).
+STATUS_FLAG_BITS = ((1 << 0, "PTP_CONNECTED"), (1 << 1, "PPS_CONNECTED"),
+                    (1 << 2, "NMEA_CONNECTED"))
+FAULT_SUMMARY_BITS = ((1 << 0, "DATA_RATIONALITY"), (1 << 1, "DATA_CHECKSUM"),
+                      (1 << 2, "TEMPERATURE_RANGE"), (1 << 3, "VOLTAGE_RANGE"))
+
+
+def decode_bits(value, table):
+    """Bit names set in `value`, with any leftover bits shown as hex."""
+    names = [name for bit, name in table if value & bit]
+    unknown = value & ~sum(bit for bit, _name in table)
+    if unknown:
+        names.append("0x%X" % unknown)
+    return names
+
+
+def _as_byte_list(value):
+    """uint8[32] arrives as bytes (rospy) or an array/ndarray (rclpy)."""
+    if isinstance(value, (bytes, bytearray)):
+        return list(value)
+    if isinstance(value, str):
+        return list(value.encode("latin-1"))
+    try:
+        return [int(v) for v in value]
+    except TypeError:
+        return []
+
+
+def _header_stamp_sec(header):
+    stamp = getattr(header, "stamp", None)
+    if stamp is None:
+        return None
+    if hasattr(stamp, "to_sec"):
+        return stamp.to_sec()  # rospy.Time
+    return stamp.sec + stamp.nanosec * 1e-9  # builtin_interfaces/Time
+
+
+def sensor_info_record(msg):
+    """Flatten a SensorInformation / CeptonSensorInfo message into a dict.
+
+    The two versions differ slightly: only the ROS1 message has a Header (and
+    its stamp is the driver's publish time, not a sensor time), and the ROS1
+    driver never fills `temperature` (publisher_nodelet.cpp), so it stays 0
+    there. Missing fields are recorded as 0 / None rather than raising.
+    """
+    rec = {f: int(getattr(msg, f, 0) or 0) for f in INFO_INT_FIELDS}
+    rec["model_name"] = str(getattr(msg, "model_name", ""))
+    rec["fault_entries"] = _as_byte_list(getattr(msg, "fault_entries", b""))
+    rec["stamp_sec"] = _header_stamp_sec(getattr(msg, "header", None))
+    return rec
+
+
+def _collect_sensor_info(info_sensors, arrival, record):
+    sn = record["serial_number"]
+    info_sensors.setdefault(sn, SensorInfoData(sn)).add(arrival, record)
+
+
 # --------------------------------------------------------------------------- #
 # ROS backends
 # --------------------------------------------------------------------------- #
@@ -269,6 +349,8 @@ def _override_yaml_keys(lines_in, overrides, indent_for_new=""):
 class RosBackend:
     node_hint = ""
     topic_prefix = ""
+    info_topic = ""
+    info_msg_hint = ""
 
     def __init__(self, args):
         self.args = args
@@ -305,6 +387,17 @@ class RosBackend:
         """on_message(arrival_sec, stamp_sec, width)."""
         raise NotImplementedError
 
+    def subscribe_sensor_info(self, on_info):
+        """Subscribe to the unified sensor info topic.
+
+        Calls on_info(arrival_sec, record) with a sensor_info_record() dict.
+        Unlike the point cloud, this stream is a few hundred bytes at a couple
+        of Hz, so subscribing from this Python process costs nothing and needs
+        no C++ probe. Returns False when the driver's message package is not
+        importable (nothing was subscribed).
+        """
+        raise NotImplementedError
+
     def spin_background(self):
         ...
 
@@ -315,6 +408,10 @@ class RosBackend:
 class Ros1Backend(RosBackend):
     node_hint = "nodelet"
     topic_prefix = "/cepton3/points_sn_"
+    info_topic = "/cepton3/sensor_information"
+    info_msg_hint = ("cannot import cepton_ros.msg. Source the catkin "
+                     "workspace that built cepton_ros, or pass "
+                     "--no-info-check to skip the sensor info rate check.")
 
     def __init__(self, args):
         super().__init__(args)
@@ -449,6 +546,22 @@ class Ros1Backend(RosBackend):
                              buff_size=2 ** 26, tcp_nodelay=True)
         )
 
+    def subscribe_sensor_info(self, on_info):
+        rospy = self._rospy
+        try:
+            from cepton_ros.msg import SensorInformation
+        except ImportError:
+            return False
+
+        def cb(msg):
+            on_info(time.time(), sensor_info_record(msg))
+
+        self._subs.append(
+            rospy.Subscriber(self.info_topic, SensorInformation, cb,
+                             queue_size=50, tcp_nodelay=True)
+        )
+        return True
+
     def spin_background(self):
         # rospy delivers on background threads once subscribed; nothing to do.
         ...
@@ -463,6 +576,10 @@ class Ros1Backend(RosBackend):
 class Ros2Backend(RosBackend):
     node_hint = "cepton"
     topic_prefix = "/serial_"
+    info_topic = "/cepton_info"
+    info_msg_hint = ("cannot import cepton_messages.msg. Source the colcon "
+                     "workspace that built cepton_messages, or pass "
+                     "--no-info-check to skip the sensor info rate check.")
 
     def __init__(self, args):
         super().__init__(args)
@@ -596,6 +713,18 @@ class Ros2Backend(RosBackend):
             on_message(arrival, stamp, msg.width)
 
         self._node.create_subscription(PointCloud2, topic, typed_cb, 200)
+
+    def subscribe_sensor_info(self, on_info):
+        try:
+            from cepton_messages.msg import CeptonSensorInfo
+        except ImportError:
+            return False
+
+        def cb(msg):
+            on_info(time.time(), sensor_info_record(msg))
+
+        self._node.create_subscription(CeptonSensorInfo, self.info_topic, cb, 50)
+        return True
 
     def spin_background(self):
         rclpy = self._rclpy
@@ -746,6 +875,7 @@ def evaluate_sensor(sd, nominal_hz, inst_tol, win_tol, window, warmup,
 
     `expected_width` is the nominal per-message point count (SDK nominal x
     aggregation count) or None to require only that all frames are identical.
+    The fraction of frames whose width deviates from it is always reported.
     """
     t0 = sd.arrivals[0] if sd.arrivals else 0.0
     # Keep frames received after the warmup window (filtered by arrival time).
@@ -771,19 +901,116 @@ def evaluate_sensor(sd, nominal_hz, inst_tol, win_tol, window, warmup,
     # Point count stability: identical every frame, and equal to the SDK
     # nominal when one is given (a shortfall = points lost somewhere).
     widths = [w for _a, _s, w in kept]
-    uniq = sorted(set(widths))
+    counts = Counter(widths)
+    uniq = sorted(counts)
     pc_pass = len(uniq) == 1
     if expected_width is not None:
         pc_pass = pc_pass and bool(widths) and widths[0] == expected_width
+    # Share of frames that are not the spec width. Without an SDK nominal
+    # (--expected-points 0) the dominant width stands in for the spec, so the
+    # ratio still reads as "frames deviating from the norm".
+    reference = expected_width
+    if reference is None and counts:
+        reference = counts.most_common(1)[0][0]
+    off_spec = sum(n for w, n in counts.items() if w != reference)
     result["point_count"] = {
         "unique_values": uniq[:20],
         "num_unique": len(uniq),
         "min": min(widths) if widths else None,
         "max": max(widths) if widths else None,
         "expected": expected_width,
+        "reference": reference,
+        "off_spec_frames": off_spec,
+        "off_spec_ratio": (off_spec / len(widths)) if widths else None,
         "pass": pc_pass,
     }
     return result
+
+
+def topic_serial(topic):
+    """Serial number embedded in a per-sensor point cloud topic name.
+
+    ROS1: /cepton3/points_sn_<SN>, ROS2: /serial_<SN>.
+    """
+    tail = topic.rsplit("_", 1)[-1]
+    return int(tail) if tail.isdigit() else None
+
+
+def evaluate_sensor_info(info_sensors, expected_serials, topic, nominal_hz,
+                         tol, window, warmup, drop_factor):
+    """Per-sensor rate check of the sensor info stream.
+
+    Only arrival times are used: the ROS2 message has no header at all, and
+    the ROS1 one is stamped by the driver at publish time rather than by the
+    sensor, so there is no sensor-side time base to compare against (unlike
+    the point cloud, which is judged on arrival *and* stamp).
+
+    A sensor that was publishing points but never any info, and one that
+    stopped mid-run, both fail: the missing/late messages either leave the
+    sensor out of `info_sensors` or open a gap that puts 1/dt out of range.
+    """
+    results = []
+    for sn in sorted(info_sensors):
+        sd = info_sensors[sn]
+        t0 = sd.arrivals[0] if sd.arrivals else 0.0
+        kept = [(a, r) for a, r in zip(sd.arrivals, sd.records)
+                if a - t0 >= warmup]
+        times = [a for a, _r in kept]
+        records = [r for _a, r in kept]
+        rate, gaps = _rate_and_drop(times, nominal_hz, tol, tol, window,
+                                    drop_factor)
+
+        latest = records[-1] if records else {}
+        flag_values = sorted({r["status_flags"] for r in records})
+        fault_values = sorted({r["fault_summary"] for r in records})
+        # Decode the union of everything seen, so a flag that was set only
+        # part of the run still shows up in the report.
+        flag_union = 0
+        fault_union = 0
+        for value in flag_values:
+            flag_union |= value
+        for value in fault_values:
+            fault_union |= value
+        # ROS1 leaves temperature at 0 (never filled by the driver); skip it
+        # rather than reporting -273 C.
+        temps = [r["temperature"] for r in records if r["temperature"]]
+        temperature_c = None
+        if temps:
+            celsius = [t / 100.0 - 273.15 for t in temps]  # unit: 0.01 Kelvin
+            temperature_c = {
+                "min": min(celsius), "max": max(celsius),
+                "mean": sum(celsius) / len(celsius),
+            }
+
+        results.append({
+            "serial_number": sn,
+            "model_name": latest.get("model_name", ""),
+            "firmware_version": latest.get("firmware_version"),
+            "messages_total": len(sd.arrivals),
+            "messages_evaluated": len(times),
+            "rate": rate,
+            "gaps": gaps,
+            "status_flags": {"values": flag_values,
+                             "decoded": decode_bits(flag_union, STATUS_FLAG_BITS)},
+            "fault_summary": {
+                "values": fault_values,
+                "messages_with_fault": sum(1 for r in records if r["fault_summary"]),
+                "decoded": decode_bits(fault_union, FAULT_SUMMARY_BITS),
+            },
+            "temperature_c": temperature_c,
+            "pass": rate["pass"],
+        })
+
+    missing = sorted(set(expected_serials) - set(info_sensors))
+    return {
+        "topic": topic,
+        "nominal_hz": nominal_hz,
+        "tolerance": tol,
+        "window_sec": window,
+        "missing_serials": missing,
+        "sensors": results,
+        "pass": bool(results) and not missing and all(r["pass"] for r in results),
+    }
 
 
 def evaluate_resources(samples, mem_thresh, cpu_thresh, warmup=0.0):
@@ -826,44 +1053,65 @@ def evaluate_resources(samples, mem_thresh, cpu_thresh, warmup=0.0):
 # --------------------------------------------------------------------------- #
 # Plotting
 # --------------------------------------------------------------------------- #
-def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
-                   window, warmup, basis):
+_matplotlib_warned = False
+
+
+def _import_matplotlib():
+    """Return (pyplot, Line2D), or (None, None) when matplotlib is missing."""
+    global _matplotlib_warned
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
     except ImportError:
-        print("matplotlib not available; skipping graphs", file=sys.stderr, flush=True)
+        if not _matplotlib_warned:
+            print("matplotlib not available; skipping graphs", file=sys.stderr,
+                  flush=True)
+            _matplotlib_warned = True
+        return None, None
+    return plt, Line2D
+
+
+def inst_series(times, t0):
+    """(elapsed, 1/dt) per interval - the per-message instantaneous rate."""
+    xs, ys = [], []
+    for i in range(1, len(times)):
+        dt = times[i] - times[i - 1]
+        if dt > 0:
+            xs.append(times[i] - t0)
+            ys.append(1.0 / dt)
+    return xs, ys
+
+
+def windowed_series(times, t0, window):
+    """(elapsed, mean rate) over a sliding window of at least `window` sec."""
+    xs, ys = [], []
+    j = 0
+    for i in range(1, len(times)):
+        while j < i - 1 and times[i] - times[j + 1] >= window:
+            j += 1
+        span = times[i] - times[j]
+        if span >= window:
+            xs.append(times[i] - t0)
+            ys.append((i - j) / span)
+    return xs, ys
+
+
+GRID_KW = dict(color="0.85", linewidth=0.6)
+
+
+def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
+                   window, warmup, basis):
+    plt, Line2D = _import_matplotlib()
+    if plt is None:
         return
 
     samples = monitor.samples if monitor is not None else []
-    grid_kw = dict(color="0.85", linewidth=0.6)
     period = 1.0 / nominal_hz
 
     def basis_times(sd):
         return sd.arrivals if basis == "arrival" else sd.stamps
-
-    def inst_series(times, t0):
-        xs, ys = [], []
-        for i in range(1, len(times)):
-            dt = times[i] - times[i - 1]
-            if dt > 0:
-                xs.append(times[i] - t0)
-                ys.append(1.0 / dt)
-        return xs, ys
-
-    def windowed_series(times, t0):
-        xs, ys = [], []
-        j = 0
-        for i in range(1, len(times)):
-            while j < i - 1 and times[i] - times[j + 1] >= window:
-                j += 1
-            span = times[i] - times[j]
-            if span >= window:
-                xs.append(times[i] - t0)
-                ys.append((i - j) / span)
-        return xs, ys
 
     # --- Publish rate over time (authoritative basis). Windowed mean is the
     # primary series (solid); the per-frame instantaneous rate is a faint
@@ -880,7 +1128,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
         color = SENSOR_COLORS[idx % len(SENSOR_COLORS)]
         label = sd.topic.rsplit("_", 1)[-1]
         ix, iy = inst_series(times, t0)
-        wx, wy = windowed_series(times, t0)
+        wx, wy = windowed_series(times, t0, window)
         clipped += sum(1 for v in iy if v > ymax)
         ax.plot(ix, iy, linewidth=0.6, alpha=0.25, color=color)
         ax.plot(wx, wy, linewidth=1.2, color=color, label="SN %s" % label)
@@ -907,7 +1155,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     if clipped:
         title += "  [%d samples > %.0f Hz clipped]" % (clipped, ymax)
     ax.set_title(title)
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     fig.tight_layout()
     fig.savefig(out_dir / "framerate.png", dpi=120)
     plt.close(fig)
@@ -941,7 +1189,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Frame interval dt [ms]")
     ax.set_ylabel("Count (log)")
     ax.set_title("Interval jitter histogram (basis=%s)" % basis)
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if any_dt:
         ax.legend(loc="best", fontsize=8, framealpha=0.9)
     fig.tight_layout()
@@ -961,7 +1209,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("CPU usage [%]")
     ax.set_title("Publisher CPU usage over time")
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if cpu_pts:
         ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
@@ -988,11 +1236,74 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("RSS memory [MB]")
     ax.set_title("Publisher memory (RSS) over time")
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if mem_pts:
         ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_dir / "memory.png", dpi=120)
+    plt.close(fig)
+
+
+def generate_sensor_info_plot(out_dir, info_sensors, nominal_hz, tol, window,
+                              warmup):
+    """Sensor info publish rate over time, one series per sensor.
+
+    Same layout as framerate.png (windowed mean solid, instantaneous 1/dt
+    faint, tolerance bounds dotted), on the arrival time base -- the only one
+    the info stream has.
+    """
+    if not any(len(sd.arrivals) >= 2 for sd in info_sensors.values()):
+        print("no sensor info messages; skipping info_framerate.png",
+              file=sys.stderr, flush=True)
+        return
+    plt, Line2D = _import_matplotlib()
+    if plt is None:
+        return
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    # Keep the tolerance band comfortably inside the view even when it is
+    # wide relative to the nominal rate (2 +/- 0.5 Hz is a quarter of it).
+    ymax = max(nominal_hz * 1.5, nominal_hz + tol * 2)
+    ymin = min(nominal_hz / 1.5, nominal_hz - tol * 2)
+    clipped = 0
+    for idx, sn in enumerate(sorted(info_sensors)):
+        times = info_sensors[sn].arrivals
+        if len(times) < 2:
+            continue
+        t0 = times[0]
+        color = SENSOR_COLORS[idx % len(SENSOR_COLORS)]
+        ix, iy = inst_series(times, t0)
+        wx, wy = windowed_series(times, t0, window)
+        clipped += sum(1 for v in iy if v > ymax or v < ymin)
+        ax.plot(ix, iy, linewidth=0.6, alpha=0.25, color=color)
+        ax.plot(wx, wy, linewidth=1.2, color=color, label="SN %s" % sn)
+    ax.axhline(nominal_hz - tol, linestyle=":", color="#B00020", linewidth=1.2,
+               label="lower bound %.2f Hz" % (nominal_hz - tol))
+    ax.axhline(nominal_hz + tol, linestyle=":", color="#B00020", linewidth=1.2,
+               label="upper bound %.2f Hz" % (nominal_hz + tol))
+    if warmup > 0:
+        ax.axvspan(0, warmup, color="0.9", label="warmup (excluded)")
+    ax.set_ylim(ymin, ymax)
+    style_handles = [
+        Line2D([0], [0], color="0.4", linewidth=1.2,
+               label="windowed mean (%.1fs)" % window),
+        Line2D([0], [0], color="0.4", alpha=0.3, linewidth=0.6,
+               label="instantaneous 1/dt"),
+    ]
+    handles = ax.get_legend_handles_labels()[0]
+    ax.legend(handles=style_handles + handles, loc="best", fontsize=8,
+              framealpha=0.9)
+    ax.set_xlabel("Elapsed time [s]")
+    ax.set_ylabel("Sensor info rate [Hz]")
+    title = ("Sensor info publish rate (nominal %.2f Hz +/-%.2f, basis=arrival)"
+             % (nominal_hz, tol))
+    if clipped:
+        title += "  [%d samples outside [%.1f, %.1f] Hz clipped]" % (
+            clipped, ymin, ymax)
+    ax.set_title(title)
+    ax.grid(True, **GRID_KW)
+    fig.tight_layout()
+    fig.savefig(out_dir / "info_framerate.png", dpi=120)
     plt.close(fig)
 
 
@@ -1014,6 +1325,37 @@ def write_sensor_csvs(out_dir, sensors, nominal_hz):
                     inst = 1.0 / dt if dt > 0 else ""
                     sdt = sd.stamps[i] - sd.stamps[i - 1]
                 w.writerow([sd.arrivals[i], sd.stamps[i], sd.widths[i], inst, sdt])
+
+
+# Column order of sensor_info.csv (arrival_sec is added by the writer).
+INFO_CSV_COLUMNS = (
+    "arrival_sec", "stamp_sec", "serial_number", "handle", "model_name",
+    "model", "part_number", "firmware_version", "power_up_timestamp",
+    "time_sync_offset", "time_sync_drift", "return_count", "channel_count",
+    "status_flags", "temperature", "fault_summary", "fault_entries",
+)
+
+
+def write_sensor_info_csv(out_dir, info_sensors, filename="sensor_info.csv"):
+    """One row per received info message, all sensors interleaved by arrival."""
+    rows = sorted(
+        ((arrival, rec) for sd in info_sensors.values()
+         for arrival, rec in zip(sd.arrivals, sd.records)),
+        key=lambda row: row[0],
+    )
+    path = out_dir / filename
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(INFO_CSV_COLUMNS)
+        for arrival, rec in rows:
+            values = [arrival]
+            for col in INFO_CSV_COLUMNS[1:]:
+                if col == "fault_entries":
+                    values.append("".join("%02x" % b for b in rec["fault_entries"]))
+                else:
+                    value = rec.get(col)
+                    values.append("" if value is None else value)
+            w.writerow(values)
 
 
 def write_resource_csv(out_dir, monitor, filename="resource.csv"):
@@ -1102,7 +1444,48 @@ def print_report(summary):
         if exp is not None:
             detail += " expected=%d" % exp
         print("     points       : %s  (%s)" % (_pf(pc["pass"]), detail))
+        ratio = pc.get("off_spec_ratio")
+        ref = "spec" if exp is not None else "dominant width %s" % pc.get("reference")
+        print("     off-spec     : %s  (%d/%d frames != %s)" % (
+            "n/a" if ratio is None else "%.4f%%" % (ratio * 100.0),
+            pc.get("off_spec_frames", 0), s["frames_evaluated"], ref))
     print("  (* = authoritative basis for pass/fail)", flush=True)
+    print("-" * 76, flush=True)
+    info = summary.get("sensor_info")
+    if info is None:
+        print("  sensor_info   : skipped (--no-info-check)", flush=True)
+    else:
+        print("  sensor_info %s  (nominal %.2f Hz ±%.2f, window %.1fs)" % (
+            info["topic"], info["nominal_hz"], info["tolerance"],
+            info["window_sec"]), flush=True)
+        for s in info["sensors"]:
+            inst = s["rate"]["instantaneous"]
+            win = s["rate"]["windowed"]
+            print("    SN %-10s : %s  (msgs=%d)" % (
+                s["serial_number"], _pf(s["pass"]), s["messages_evaluated"]))
+            print("      inst rate  : %s  (out=%d/%d min=%s max=%s mean=%s)" % (
+                _pf(inst["pass"]), inst["out_of_range"], inst["samples"],
+                _fmt(inst["min"]), _fmt(inst["max"]), _fmt(inst["mean"])))
+            print("      win  rate  : %s  (out=%d/%d min=%s max=%s mean=%s)" % (
+                _pf(win["pass"]), win["out_of_range"], win["samples"],
+                _fmt(win["min"]), _fmt(win["max"]), _fmt(win["mean"])))
+            extra = []
+            if s["status_flags"]["decoded"]:
+                extra.append("flags=%s" % "|".join(s["status_flags"]["decoded"]))
+            if s["fault_summary"]["messages_with_fault"]:
+                extra.append("faults=%s (%d msgs)" % (
+                    "|".join(s["fault_summary"]["decoded"]),
+                    s["fault_summary"]["messages_with_fault"]))
+            if s["temperature_c"]:
+                extra.append("temp=%s..%s°C" % (_fmt(s["temperature_c"]["min"]),
+                                                _fmt(s["temperature_c"]["max"])))
+            if extra:
+                print("      info       : %s" % "  ".join(extra))
+        if not info["sensors"]:
+            print("    FAIL  (no sensor info messages received)", flush=True)
+        if info["missing_serials"]:
+            print("    FAIL  no info from SN: %s" % ", ".join(
+                str(sn) for sn in info["missing_serials"]), flush=True)
     print("-" * 76, flush=True)
     proc = summary["process"]
     print("  process_alive : %s  %s" % (
@@ -1147,8 +1530,8 @@ def parse_args():
     p.add_argument("--ros-version", type=int, choices=[1, 2],
                    default=(int(default_version) if default_version in ("1", "2") else None),
                    help="ROS version (default: $ROS_VERSION)")
-    p.add_argument("--expected-sensors", type=int, default=4,
-                   help="Number of sensor topics that must appear (default: 4)")
+    p.add_argument("--expected-sensors", type=int, default=1,
+                   help="Number of sensor topics that must appear (default: 1)")
     p.add_argument("--rate-method", choices=["probe", "inproc"], default="probe",
                    help="Data-plane measurement: 'probe' launches the C++ "
                         "stability_probe node (required for real sensors; "
@@ -1170,6 +1553,21 @@ def parse_args():
                         "(subscriber wall-clock, the cadence a ROS client sees) or "
                         "'stamp' (sensor supply cadence, reference). Both are "
                         "always reported. (default: arrival)")
+    p.add_argument("--info-rate", type=float, default=2.0,
+                   help="Nominal sensor info publish rate per sensor in Hz "
+                        "(default: 2.0)")
+    p.add_argument("--info-rate-tolerance", type=float, default=0.5,
+                   help="Allowed Hz deviation of the sensor info rate, applied "
+                        "to both the per-message 1/dt and the windowed mean "
+                        "(default: 0.5)")
+    p.add_argument("--info-rate-window", type=float, default=5.0,
+                   help="Sliding window length in seconds for the windowed "
+                        "mean sensor info rate. Longer than the point cloud "
+                        "window because the info stream is ~10x slower "
+                        "(default: 5.0)")
+    p.add_argument("--no-info-check", action="store_true",
+                   help="Do not subscribe to the sensor info topic and skip "
+                        "the info rate check (dry runs without the driver)")
     p.add_argument("--expected-points", type=int, default=349960,
                    help="Nominal SDK points per frame; pass requires width == "
                         "this x aggregation_frame_count on every frame. 0 "
@@ -1225,6 +1623,8 @@ def main():
     probe_popen = None
     probe_monitor = None
     sensors = {}
+    info_sensors = {}
+    info_enabled = not args.no_info_check
     topics = []
     crashed_during_run = False
     probe_crashed = False
@@ -1252,10 +1652,22 @@ def main():
                   (len(topics), args.expected_sensors, topics), file=sys.stderr)
             return 2
 
+        if info_enabled:
+            if not backend.subscribe_sensor_info(
+                    lambda a, rec: _collect_sensor_info(info_sensors, a, rec)):
+                print("ERROR: %s" % backend.info_msg_hint, file=sys.stderr)
+                return 2
+            print("subscribing to %s (sensor info rate check)" %
+                  backend.info_topic, flush=True)
+
         if args.rate_method == "probe":
             if not backend.probe_available():
                 print("ERROR: %s" % backend.probe_build_hint(), file=sys.stderr)
                 return 2
+            # Spin before launching the probe: the info stream is already
+            # flowing and its queue would otherwise sit undrained for the
+            # several seconds the probe takes to come up.
+            backend.spin_background()
             print("launching C++ probe for %d sensor topics" % len(topics),
                   flush=True)
             probe_popen, probe_pid = backend.launch_probe(topics, str(out_dir))
@@ -1309,6 +1721,14 @@ def main():
                         args.drop_factor, args.rate_basis, expected_total)
         for sd in sorted(sensors.values(), key=lambda s: s.topic)
     ]
+    info_result = None
+    if info_enabled:
+        expected_serials = [sn for sn in (topic_serial(t) for t in topics)
+                            if sn is not None]
+        info_result = evaluate_sensor_info(
+            info_sensors, expected_serials, backend.info_topic, args.info_rate,
+            args.info_rate_tolerance, args.info_rate_window, args.warmup,
+            args.drop_factor)
     res = evaluate_resources(monitor.samples if monitor else [],
                              args.mem_growth_threshold, args.cpu_growth_threshold,
                              args.warmup)
@@ -1335,6 +1755,7 @@ def main():
                 for s in sensor_results)
         and process_result["pass"]
         and res["memory_mb"]["pass"] and res["cpu_percent"]["pass"]
+        and (info_result is None or info_result["pass"])
         and not probe_crashed
     )
 
@@ -1347,9 +1768,12 @@ def main():
         "inst_tolerance": args.inst_tolerance,
         "rate_window": args.rate_window,
         "rate_basis": args.rate_basis,
+        "info_rate": args.info_rate,
+        "info_rate_tolerance": args.info_rate_tolerance,
         "expected_points_total": expected_total,
         "duration_sec": args.duration,
         "sensors": sensor_results,
+        "sensor_info": info_result,
         "process": process_result,
         "resources": res,
         "probe": probe_info,
@@ -1358,6 +1782,8 @@ def main():
 
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     write_sensor_csvs(out_dir, sensors, nominal_hz)
+    if info_enabled:
+        write_sensor_info_csv(out_dir, info_sensors)
     if monitor is not None:
         write_resource_csv(out_dir, monitor)
     if probe_monitor is not None:
@@ -1365,6 +1791,10 @@ def main():
     generate_plots(out_dir, sensors, monitor, nominal_hz, args.inst_tolerance,
                    args.rate_tolerance, args.rate_window, args.warmup,
                    args.rate_basis)
+    if info_enabled:
+        generate_sensor_info_plot(out_dir, info_sensors, args.info_rate,
+                                  args.info_rate_tolerance,
+                                  args.info_rate_window, args.warmup)
     print_report(summary)
     print("Output written to %s" % out_dir, flush=True)
     if probe_crashed:

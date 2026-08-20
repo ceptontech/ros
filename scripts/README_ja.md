@@ -1,8 +1,8 @@
 # 長期稼働試験スクリプト `stability_test.py`
 
 Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続稼働させ、点群配信の
-**周期・点数安定性・フレームドロップ・プロセス生存・CPU/メモリのリーク**を自動評価する
-スクリプトです。ROS1 と ROS2 を `--ros-version` で切り替えられます（既定は環境変数
+**周期・点数安定性・フレームドロップ・SensorInfo レート・プロセス生存・CPU/メモリのリーク**
+を自動評価するスクリプトです。ROS1 と ROS2 を `--ros-version` で切り替えられます（既定は環境変数
 `ROS_VERSION` から自動判定）。
 
 ## 計測アーキテクチャ（なぜ C++ プローブが必要か）
@@ -14,7 +14,11 @@ Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続�
   到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけの ~100 行のノード。
   ドライバ非改変・Cepton SDK 非依存。
 - **コントロールプレーン = Python (`stability_test.py`)**。Publisher/プローブの起動と
-  `/proc` によるリソース監視、CSV の評価、グラフ・レポート生成。
+  `/proc` によるリソース監視、CSV の評価、グラフ・レポート生成。加えて **SensorInfo**
+  （ROS1: `/cepton3/sensor_information` / ROS2: `/cepton_info`）はこの Python プロセスから
+  直接購読します。1 メッセージ数百バイト・公称 2Hz と点群より 4 桁以上軽く GIL が
+  ボトルネックにならないため、C++ プローブを介する必要がありません（全台分が 1 本の
+  トピックに流れるので、メッセージ内の `serial_number` で台ごとに振り分けます）。
 
 Python 購読（`--rate-method inproc`）を実機で使ってはいけない理由：全点設定では
 トピック実流量が **349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）** に達し、
@@ -66,11 +70,15 @@ ROS1 では内部で `aggregate_frames`（`false`/`true`）に、ROS2 では `ag
 にマッピングされます。
 
 ```bash
-# ROS1 環境を source した状態で、4 台・600 秒・count=1（20Hz）
+# ROS1 環境を source した状態で、1 台・600 秒・count=1（20Hz）
 python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 
 # 続けて count=2（10Hz、期待点数は自動で 2 倍の 699,920 に）
 python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 2
+
+# 4 台まとめて試験する場合は台数を明示（--expected-sensors の既定は 1）
+python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1 \
+  --expected-sensors 4
 
 # ROS2 環境を source すれば同じコマンドで ROS2 側を試験（--ros-version は自動）
 python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
@@ -86,14 +94,18 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--aggregation-frame-count` | `1` | `1`(≈20Hz) か `2`(≈10Hz) |
 | `--ros-version` | `$ROS_VERSION` | `1` か `2` |
 | `--rate-method` | `probe` | `probe`=C++ 計測ノード（実機は必須）/ `inproc`=Python 購読（低レートのドライラン専用） |
-| `--expected-sensors` | `4` | 検出必須の台数（不足なら前提未達で終了コード 2） |
+| `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |
 | `--inst-tolerance` | `0.1` | **瞬時** 1/dt の許容 Hz 誤差（仕様どおり。20Hz では ±0.25ms の間隔予算） |
 | `--rate-tolerance` | `0.1` | **窓平均**レートの許容 Hz 誤差 |
 | `--rate-window` | `1.0` | 窓平均のスライディング窓長（秒） |
 | `--rate-basis` | `arrival` | 合否の基準。`arrival`（購読側の実受信＝配信ケイデンス）か `stamp`（センサ供給周期・参考）。両方常時併記 |
+| `--info-rate` | `2.0` | SensorInfo の公称レート（Hz） |
+| `--info-rate-tolerance` | `0.5` | SensorInfo レートの許容 Hz 誤差（瞬時 1/dt・窓平均の両方に適用） |
+| `--info-rate-window` | `5.0` | SensorInfo の窓平均の窓長（秒）。点群より 1 桁低レートなので既定は長め |
+| `--no-info-check` | (off) | SensorInfo を購読せずレート判定をスキップ（ドライラン用） |
 | `--expected-points` | `349960` | SDK 公称点数。合否 = 全フレームの width == この値 × aggregation_count。`0` で「全フレーム同一」のみ判定（ドライラン用） |
 | `--no-all-points` | (off) | 全点設定の自動上書きを無効化（既定は include_* 全 true・フィルタ全開） |
-| `--warmup` | `3.0` | 起動直後の除外秒数 |
+| `--warmup` | `5.0` | 起動直後の除外秒数（点群・SensorInfo とも各系列の先頭から適用） |
 | `--drop-factor` | `1.5` | 間隔 > `factor × 公称周期` をドロップ判定 |
 | `--mem-growth-threshold` | `1.0` | RSS 増加の不合格閾値（MB/min） |
 | `--cpu-growth-threshold` | `5.0` | CPU 増加の不合格閾値（%/min） |
@@ -112,7 +124,16 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
     OS ジッタで偽 FAIL し得るため、実測分布を見て `--inst-tolerance` の扱いを判断する）
 - **点数安定性**: 全フレームの `width` が完全一致し、かつ **SDK 公称 349,960 ×
   aggregation_count に一致**すること（全点設定が前提。点の欠けは UDP ロス／フレーム
-  組み立て欠損を意味する）
+  組み立て欠損を意味する）。あわせて **仕様値と一致しないフレームの割合**
+  （`off_spec_ratio` / `off_spec_frames`）を常に算出し、レポートと `summary.json` に
+  出力する（合否とは別に「どれくらいの頻度で欠けたか」を定量化するための指標。
+  `--expected-points 0` のときは仕様値の代わりに最頻 width を基準にする）
+- **SensorInfo レート**: 台ごとに SensorInfo の受信間隔から求めた瞬時 1/dt と
+  `--info-rate-window` 秒スライディング窓の平均が、いずれも
+  `--info-rate ± --info-rate-tolerance`（既定 **2 ± 0.5 Hz**）内であること。点群トピックが
+  見つかった台から SensorInfo が 1 通も届かない場合も不合格。判定は到着時刻基準のみ
+  （ROS2 のメッセージに header は無く、ROS1 の `header.stamp` もドライバが publish 時に
+  付ける時刻でセンサ時刻ではないため、点群のような stamp 基準の併記はしない）
 - **フレームドロップ**: 間隔が `drop-factor × 公称周期` を超える箇所が 0 であること
 - **プロセス生存**: duration 中に Publisher プロセスが異常終了しないこと
 - **CPU/メモリ**: RSS / CPU の線形回帰の傾きが閾値を超えて増加し続けないこと
@@ -144,10 +165,15 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
 
 - `summary.json` … 全評価結果と総合判定（arrival/stamp 両基準・inst/windowed・dt 分布を含む）
 - `sensor_<...>.csv` … 台ごとの到着時刻・stamp・width（プローブが記録、評価後に瞬時 Hz 等の列を追記）
+- `sensor_info.csv` … SensorInfo の全受信メッセージを到着順に記録（到着時刻・`serial_number`・
+  `status_flags`・`temperature`・`fault_summary`・`fault_entries` など全フィールド）。
+  ※ ROS1 ドライバは `temperature` を設定しないため ROS1 では常に 0
 - `resource.csv` … Publisher の RSS(MB) / CPU(%) 時系列
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
 - `framerate.png` … 配信レートの経時変化。**窓平均が主系列（実線）、瞬時 1/dt は淡色**。
   許容範囲の上下限を点線で表示（スパイクは上限でクリップし件数注記）
+- `info_framerate.png` … SensorInfo レートの経時変化（台ごと）。framerate.png と同じ体裁で
+  窓平均が実線・瞬時 1/dt が淡色、`--info-rate ± --info-rate-tolerance` の上下限を点線表示
 - `jitter.png` … dt ヒストグラム（対数 y 軸）。公称周期と瞬時許容境界を縦線表示
 - `cpu.png` … Publisher CPU 使用率の経時変化
 - `memory.png` … Publisher RSS メモリの経時変化（増加傾向の回帰直線つき）
@@ -205,6 +231,8 @@ sudo sysctl -w net.ipv4.tcp_wmem="4096 87380 134217728"
 疑似トピックを流して検出・評価・レポート生成を確認できます。疑似トピックは点数が公称と
 異なるため `--expected-points` を実際の width（または `0`）にします。プローブをビルド済みなら
 `--rate-method probe` のまま、未ビルドなら `--rate-method inproc` を指定します。
+SensorInfo は流れないので `--no-info-check` を付けます（付けないと SensorInfo レートが
+不合格になります）。
 
 ### ROS1
 ```bash
@@ -212,14 +240,15 @@ sudo sysctl -w net.ipv4.tcp_wmem="4096 87380 134217728"
 rostopic pub -r 20 /cepton3/points_sn_1 sensor_msgs/PointCloud2 '{width: 100, height: 1}'
 # （複数台分はそれぞれ別トピック名で起動）
 python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
-  --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --rate-method inproc
+  --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --rate-method inproc \
+  --no-info-check
 ```
 
 ### ROS2
 ```bash
 ros2 topic pub -r 20 /serial_1 sensor_msgs/msg/PointCloud2 '{width: 100, height: 1}'
 python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
-  --expected-points 100 --inst-tolerance 3 --rate-tolerance 3
+  --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --no-info-check
 ```
 
 ※ `ros2 topic pub` は `header.stamp` が常に 0 のため、stamp 基準の行は n/a になります
