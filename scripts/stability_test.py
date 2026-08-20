@@ -1053,44 +1053,65 @@ def evaluate_resources(samples, mem_thresh, cpu_thresh, warmup=0.0):
 # --------------------------------------------------------------------------- #
 # Plotting
 # --------------------------------------------------------------------------- #
-def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
-                   window, warmup, basis):
+_matplotlib_warned = False
+
+
+def _import_matplotlib():
+    """Return (pyplot, Line2D), or (None, None) when matplotlib is missing."""
+    global _matplotlib_warned
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
     except ImportError:
-        print("matplotlib not available; skipping graphs", file=sys.stderr, flush=True)
+        if not _matplotlib_warned:
+            print("matplotlib not available; skipping graphs", file=sys.stderr,
+                  flush=True)
+            _matplotlib_warned = True
+        return None, None
+    return plt, Line2D
+
+
+def inst_series(times, t0):
+    """(elapsed, 1/dt) per interval - the per-message instantaneous rate."""
+    xs, ys = [], []
+    for i in range(1, len(times)):
+        dt = times[i] - times[i - 1]
+        if dt > 0:
+            xs.append(times[i] - t0)
+            ys.append(1.0 / dt)
+    return xs, ys
+
+
+def windowed_series(times, t0, window):
+    """(elapsed, mean rate) over a sliding window of at least `window` sec."""
+    xs, ys = [], []
+    j = 0
+    for i in range(1, len(times)):
+        while j < i - 1 and times[i] - times[j + 1] >= window:
+            j += 1
+        span = times[i] - times[j]
+        if span >= window:
+            xs.append(times[i] - t0)
+            ys.append((i - j) / span)
+    return xs, ys
+
+
+GRID_KW = dict(color="0.85", linewidth=0.6)
+
+
+def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
+                   window, warmup, basis):
+    plt, Line2D = _import_matplotlib()
+    if plt is None:
         return
 
     samples = monitor.samples if monitor is not None else []
-    grid_kw = dict(color="0.85", linewidth=0.6)
     period = 1.0 / nominal_hz
 
     def basis_times(sd):
         return sd.arrivals if basis == "arrival" else sd.stamps
-
-    def inst_series(times, t0):
-        xs, ys = [], []
-        for i in range(1, len(times)):
-            dt = times[i] - times[i - 1]
-            if dt > 0:
-                xs.append(times[i] - t0)
-                ys.append(1.0 / dt)
-        return xs, ys
-
-    def windowed_series(times, t0):
-        xs, ys = [], []
-        j = 0
-        for i in range(1, len(times)):
-            while j < i - 1 and times[i] - times[j + 1] >= window:
-                j += 1
-            span = times[i] - times[j]
-            if span >= window:
-                xs.append(times[i] - t0)
-                ys.append((i - j) / span)
-        return xs, ys
 
     # --- Publish rate over time (authoritative basis). Windowed mean is the
     # primary series (solid); the per-frame instantaneous rate is a faint
@@ -1107,7 +1128,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
         color = SENSOR_COLORS[idx % len(SENSOR_COLORS)]
         label = sd.topic.rsplit("_", 1)[-1]
         ix, iy = inst_series(times, t0)
-        wx, wy = windowed_series(times, t0)
+        wx, wy = windowed_series(times, t0, window)
         clipped += sum(1 for v in iy if v > ymax)
         ax.plot(ix, iy, linewidth=0.6, alpha=0.25, color=color)
         ax.plot(wx, wy, linewidth=1.2, color=color, label="SN %s" % label)
@@ -1134,7 +1155,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     if clipped:
         title += "  [%d samples > %.0f Hz clipped]" % (clipped, ymax)
     ax.set_title(title)
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     fig.tight_layout()
     fig.savefig(out_dir / "framerate.png", dpi=120)
     plt.close(fig)
@@ -1168,7 +1189,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Frame interval dt [ms]")
     ax.set_ylabel("Count (log)")
     ax.set_title("Interval jitter histogram (basis=%s)" % basis)
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if any_dt:
         ax.legend(loc="best", fontsize=8, framealpha=0.9)
     fig.tight_layout()
@@ -1188,7 +1209,7 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("CPU usage [%]")
     ax.set_title("Publisher CPU usage over time")
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if cpu_pts:
         ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
@@ -1215,11 +1236,74 @@ def generate_plots(out_dir, sensors, monitor, nominal_hz, inst_tol, win_tol,
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("RSS memory [MB]")
     ax.set_title("Publisher memory (RSS) over time")
-    ax.grid(True, **grid_kw)
+    ax.grid(True, **GRID_KW)
     if mem_pts:
         ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_dir / "memory.png", dpi=120)
+    plt.close(fig)
+
+
+def generate_sensor_info_plot(out_dir, info_sensors, nominal_hz, tol, window,
+                              warmup):
+    """Sensor info publish rate over time, one series per sensor.
+
+    Same layout as framerate.png (windowed mean solid, instantaneous 1/dt
+    faint, tolerance bounds dotted), on the arrival time base -- the only one
+    the info stream has.
+    """
+    if not any(len(sd.arrivals) >= 2 for sd in info_sensors.values()):
+        print("no sensor info messages; skipping info_framerate.png",
+              file=sys.stderr, flush=True)
+        return
+    plt, Line2D = _import_matplotlib()
+    if plt is None:
+        return
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    # Keep the tolerance band comfortably inside the view even when it is
+    # wide relative to the nominal rate (2 +/- 0.5 Hz is a quarter of it).
+    ymax = max(nominal_hz * 1.5, nominal_hz + tol * 2)
+    ymin = min(nominal_hz / 1.5, nominal_hz - tol * 2)
+    clipped = 0
+    for idx, sn in enumerate(sorted(info_sensors)):
+        times = info_sensors[sn].arrivals
+        if len(times) < 2:
+            continue
+        t0 = times[0]
+        color = SENSOR_COLORS[idx % len(SENSOR_COLORS)]
+        ix, iy = inst_series(times, t0)
+        wx, wy = windowed_series(times, t0, window)
+        clipped += sum(1 for v in iy if v > ymax or v < ymin)
+        ax.plot(ix, iy, linewidth=0.6, alpha=0.25, color=color)
+        ax.plot(wx, wy, linewidth=1.2, color=color, label="SN %s" % sn)
+    ax.axhline(nominal_hz - tol, linestyle=":", color="#B00020", linewidth=1.2,
+               label="lower bound %.2f Hz" % (nominal_hz - tol))
+    ax.axhline(nominal_hz + tol, linestyle=":", color="#B00020", linewidth=1.2,
+               label="upper bound %.2f Hz" % (nominal_hz + tol))
+    if warmup > 0:
+        ax.axvspan(0, warmup, color="0.9", label="warmup (excluded)")
+    ax.set_ylim(ymin, ymax)
+    style_handles = [
+        Line2D([0], [0], color="0.4", linewidth=1.2,
+               label="windowed mean (%.1fs)" % window),
+        Line2D([0], [0], color="0.4", alpha=0.3, linewidth=0.6,
+               label="instantaneous 1/dt"),
+    ]
+    handles = ax.get_legend_handles_labels()[0]
+    ax.legend(handles=style_handles + handles, loc="best", fontsize=8,
+              framealpha=0.9)
+    ax.set_xlabel("Elapsed time [s]")
+    ax.set_ylabel("Sensor info rate [Hz]")
+    title = ("Sensor info publish rate (nominal %.2f Hz +/-%.2f, basis=arrival)"
+             % (nominal_hz, tol))
+    if clipped:
+        title += "  [%d samples outside [%.1f, %.1f] Hz clipped]" % (
+            clipped, ymin, ymax)
+    ax.set_title(title)
+    ax.grid(True, **GRID_KW)
+    fig.tight_layout()
+    fig.savefig(out_dir / "info_framerate.png", dpi=120)
     plt.close(fig)
 
 
@@ -1707,6 +1791,10 @@ def main():
     generate_plots(out_dir, sensors, monitor, nominal_hz, args.inst_tolerance,
                    args.rate_tolerance, args.rate_window, args.warmup,
                    args.rate_basis)
+    if info_enabled:
+        generate_sensor_info_plot(out_dir, info_sensors, args.info_rate,
+                                  args.info_rate_tolerance,
+                                  args.info_rate_window, args.warmup)
     print_report(summary)
     print("Output written to %s" % out_dir, flush=True)
     if probe_crashed:

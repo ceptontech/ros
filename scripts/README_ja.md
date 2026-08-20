@@ -172,6 +172,8 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
 - `framerate.png` … 配信レートの経時変化。**窓平均が主系列（実線）、瞬時 1/dt は淡色**。
   許容範囲の上下限を点線で表示（スパイクは上限でクリップし件数注記）
+- `info_framerate.png` … SensorInfo レートの経時変化（台ごと）。framerate.png と同じ体裁で
+  窓平均が実線・瞬時 1/dt が淡色、`--info-rate ± --info-rate-tolerance` の上下限を点線表示
 - `jitter.png` … dt ヒストグラム（対数 y 軸）。公称周期と瞬時許容境界を縦線表示
 - `cpu.png` … Publisher CPU 使用率の経時変化
 - `memory.png` … Publisher RSS メモリの経時変化（増加傾向の回帰直線つき）
