@@ -150,9 +150,9 @@ enum {
   CEPTON_POINT_NOISE = 1 << 6,
   CEPTON_POINT_BLOCKED = 1 << 7,
   CEPTON_POINT_RETRO = 1 << 8,
-  // Missing from the upstream 3.0.24.2 header, but the sensors do report the
-  // bit. Re-check this when bumping the SDK: if upstream adds the enumerator
-  // back, drop this line to avoid a duplicate definition.
+  // Still missing from the upstream 3.0.24.3 header, but the sensors do report
+  // the bit. Re-check this when bumping the SDK: if upstream adds the
+  // enumerator back, drop this line to avoid a duplicate definition.
   CEPTON_POINT_RETRO_WEAK = 1 << 9,
 };
 
