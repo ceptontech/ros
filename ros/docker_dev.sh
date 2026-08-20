@@ -6,7 +6,7 @@
 CONTAINER_NAME="ros-dev-noetic"
 IMAGE_NAME="cepton-ros1-dev"
 REPO_PATH="$(pwd)"
-SDK_PATH="$(pwd)/../cepton-sdk-3.0.24.2"
+SDK_PATH="$(pwd)/../cepton-sdk-3.0.24.3"
 DOCKERFILE_PATH="../ci/Dockerfile.ros1"
 
 # Build the Docker image if it doesn't exist
@@ -25,12 +25,12 @@ fi
 # Create and run new container
 echo "Creating new ROS Noetic container: ${CONTAINER_NAME}"
 echo "Mounting repository: ${REPO_PATH} -> /catkin_ws/src/cepton_ros"
-echo "Mounting SDK: ${SDK_PATH} -> /catkin_ws/src/cepton-sdk-3.0.24.2"
+echo "Mounting SDK: ${SDK_PATH} -> /catkin_ws/src/cepton-sdk-3.0.24.3"
 
 docker run -it \
     --name ${CONTAINER_NAME} \
     --mount type=bind,source="${REPO_PATH}",target=/catkin_ws/src/cepton_ros \
-    --mount type=bind,source="${SDK_PATH}",target=/catkin_ws/src/cepton-sdk-3.0.24.2 \
+    --mount type=bind,source="${SDK_PATH}",target=/catkin_ws/src/cepton-sdk-3.0.24.3 \
     --workdir /catkin_ws \
     ${IMAGE_NAME} \
     /bin/bash
