@@ -195,10 +195,15 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `environment.json` … **計測時のマシン設定スナップショット**（後述）
 - `resource_system.csv` … マシン全体の時系列。`cpu_busy_pct` / `cpu_max_core_pct` / `load1` /
   `temp_c` / `net_rx_softirq_s` / `udp_in_s` / `udp_rcvbuf_err_s` / `nic_rx_mbps` /
-  `nic_drop_s` / `top_processes`（各窓で CPU を最も食ったプロセス上位 3 つ）
+  `nic_drop_s` / `freq_{min,median,max}_mhz` / `top_processes`（各窓で CPU を最も食った
+  プロセス上位 3 つ）。周波数は**マシン全体の文脈**で、どのコアが被試験プロセスを
+  実行したかは主張しない
 - `resource_process.csv` … Publisher プロセスの内部。`threads` / `vmrss_mb` / `vmsize_mb` /
-  `vmas` / `minflt_s` / `hot_cpu`（最も CPU を使ったスレッドが載っているコア）/
-  `hot_cpu_pct` / `hot_freq_mhz` / `max_core_freq_mhz`
+  `vmas` / `minflt_s` / `hot_thread_cpu_pct`（最も CPU を使ったスレッドの利用率）/
+  `hot_thread_last_cpu`（読み取り時点で最後に載っていたコア。**滞在時間ではない**）
+- `publisher_clock.csv` … `perf` が使える場合のみ。`effective_ghz` = `cycles / task-clock` で、
+  **プロセスに帰属した実効クロック**。スレッドがコアを渡り歩いても正しく積算される。
+  `perf_event_paranoid` が高いと取得できず、その理由が `summary.json` に記録される
 - `system.png` … マシン CPU・ホットコア周波数・温度・NIC 受信の経時変化。
   点群が束になって届いた区間を網掛けで重ねてあり、配信が乱れている間もマシン側が
   平坦かどうかを一目で確認できる

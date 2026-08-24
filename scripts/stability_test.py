@@ -304,6 +304,91 @@ def _top_processes(prev, interval, count=3):
     return top, cur
 
 
+def perf_available():
+    """(usable, reason) for counting hardware events on this kernel."""
+    if _run(["perf", "--version"]) is None:
+        return False, "perf not installed"
+    probe = None
+    try:
+        probe = subprocess.run(["perf", "stat", "-e", "cycles", "-x,", "--", "true"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, "perf failed to run (%s)" % exc
+    if probe.returncode == 0:
+        return True, None
+    paranoid = _read_text("/proc/sys/kernel/perf_event_paranoid")
+    return False, ("perf_event_paranoid=%s blocks unprivileged counting; "
+                   "lower it or run as root for a process-attributed clock"
+                   % paranoid)
+
+
+class PerfCounter(threading.Thread):
+    """Effective clock of the process under test: cycles / task-clock.
+
+    This is the only frequency figure that can be attributed to the process:
+    `cycles` counts what the process actually burned and `task-clock` the time
+    it was on a CPU, so the ratio survives threads migrating between cores or
+    being created per message. Needs CAP_PERFMON or a permissive
+    perf_event_paranoid; when that is unavailable nothing is recorded rather
+    than substituting a number that cannot be attributed.
+    """
+
+    def __init__(self, pid, interval):
+        super().__init__(daemon=True)
+        self.pid = pid
+        self.interval = max(0.1, interval)
+        self.samples = []
+        self.unavailable_reason = None
+        self._proc = None
+
+    def start_if_possible(self):
+        ok, reason = perf_available()
+        if not ok:
+            self.unavailable_reason = reason
+            return False
+        try:
+            self._proc = subprocess.Popen(
+                ["perf", "stat", "-p", str(self.pid), "-e", "cycles,task-clock",
+                 "-x,", "-I", str(int(self.interval * 1000))],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.unavailable_reason = "perf could not be started (%s)" % exc
+            return False
+        self.start()
+        return True
+
+    def stop(self):
+        if self._proc is not None and self._proc.poll() is None:
+            self._proc.terminate()
+
+    def run(self):
+        # `perf stat -x, -I` emits one CSV line per event per interval:
+        #   <elapsed>,<count>,<unit>,<event>,...
+        pending = {}
+        for raw in self._proc.stderr:
+            fields = raw.decode("utf-8", "replace").strip().split(",")
+            if len(fields) < 4:
+                continue
+            try:
+                t_rel = float(fields[0])
+                count = float(fields[1])
+            except ValueError:
+                continue
+            event = fields[3]
+            slot = pending.setdefault(round(t_rel, 3), {})
+            slot[event] = count
+            if "cycles" in slot and "task-clock" in slot:
+                busy_sec = slot["task-clock"] / 1000.0  # perf reports msec
+                self.samples.append({
+                    "t_rel_sec": t_rel,
+                    "effective_ghz": (slot["cycles"] / busy_sec / 1e9
+                                      if busy_sec > 0 else None),
+                    "busy_ratio": busy_sec / self.interval,
+                })
+                pending.pop(round(t_rel, 3), None)
+
+
 class SystemMonitor(threading.Thread):
     """Whole-machine sampling: everything the per-process monitor cannot see.
 
@@ -354,6 +439,11 @@ class SystemMonitor(threading.Thread):
 
             per_core = [busy(k) for k in cpu if k != "cpu"]
             per_core = [v for v in per_core if v is not None]
+            # Machine context only: which clocks the cores were reporting. No
+            # claim is made about which of them ran the process under test.
+            freqs = sorted(v for v in (_core_freq_mhz(i)
+                                       for i in range(os.cpu_count() or 0))
+                           if v is not None)
 
             def rate(now_v, prev_v):
                 if now_v is None or prev_v is None:
@@ -372,6 +462,9 @@ class SystemMonitor(threading.Thread):
                 "nic_rx_mbps": ((rate(rx, prev_rx) * 8 / 1e6)
                                 if None not in (rx, prev_rx) else None),
                 "nic_drop_s": rate(drop, prev_drop),
+                "freq_min_mhz": freqs[0] if freqs else None,
+                "freq_median_mhz": freqs[len(freqs) // 2] if freqs else None,
+                "freq_max_mhz": freqs[-1] if freqs else None,
                 "top_processes": " ".join("%s:%.0f%%" % (n, c) for n, c in top),
             })
             prev_cpu, prev_udp, prev_sirq, prev_rx, prev_drop = cpu, udp, sirq, rx, drop
@@ -399,11 +492,14 @@ def _core_freq_mhz(cpu):
 
 
 class ProcessMonitor(threading.Thread):
-    """Internals of the process under test, and the core its hot thread runs on.
+    """Internals of the process under test.
 
-    Averaging scaling_cur_freq over every core is useless when one thread is
-    the bottleneck and the rest of the machine is idle, so the busiest thread
-    is located each interval and only its core's frequency is recorded.
+    Deliberately records no per-core clock. `processor` in /proc/<pid>/task/*/stat
+    is the last core the thread was seen on at read time, not where it spent the
+    interval, and this driver spawns a fresh publish thread per message, so any
+    frequency paired with it would be unattributable. Machine-wide clock context
+    lives in SystemMonitor, and the process-attributed effective clock (the only
+    honest one) comes from PerfCounter when the kernel permits it.
     """
 
     def __init__(self, pid, interval):
@@ -466,10 +562,9 @@ class ProcessMonitor(threading.Thread):
                 "vmas": self._vma_count(),
                 "minflt_s": ((minflt - prev_minflt) / self.interval
                              if minflt is not None and prev_minflt is not None else None),
-                "hot_cpu": hot_cpu,
-                "hot_cpu_pct": 100.0 * hot_delta / hz / self.interval if hot_delta > 0 else 0.0,
-                "hot_freq_mhz": _core_freq_mhz(hot_cpu) if hot_cpu is not None else None,
-                "max_core_freq_mhz": self._max_freq(),
+                "hot_thread_last_cpu": hot_cpu,
+                "hot_thread_cpu_pct": (100.0 * hot_delta / hz / self.interval
+                                       if hot_delta > 0 else 0.0),
             })
             prev, prev_minflt = cur, minflt
 
@@ -490,14 +585,6 @@ class ProcessMonitor(threading.Thread):
         except (OSError, ValueError, IndexError):
             pass
         return None
-
-    def _max_freq(self):
-        best = None
-        for i in range(os.cpu_count() or 0):
-            v = _core_freq_mhz(i)
-            if v is not None:
-                best = v if best is None else max(best, v)
-        return best
 
 
 # --------------------------------------------------------------------------- #
@@ -1788,7 +1875,7 @@ def generate_system_plot(out_dir, system_samples, process_samples, sensors,
 
     panels = [
         ("Machine CPU [%]", system_samples, "cpu_busy_pct", SENSOR_COLORS[0]),
-        ("Hot core [MHz]", process_samples, "hot_freq_mhz", SENSOR_COLORS[1]),
+        ("Core clock [MHz]", system_samples, "freq_max_mhz", SENSOR_COLORS[1]),
         ("Max temp [degC]", system_samples, "temp_c", SENSOR_COLORS[2]),
         ("NIC rx [Mbps]", system_samples, "nic_rx_mbps", SENSOR_COLORS[3]),
     ]
@@ -1876,12 +1963,14 @@ def write_resource_csv(out_dir, monitor, filename="resource.csv"):
 SYSTEM_CSV_COLUMNS = (
     "t_rel_sec", "cpu_busy_pct", "cpu_max_core_pct", "load1", "temp_c",
     "net_rx_softirq_s", "udp_in_s", "udp_rcvbuf_err_s", "nic_rx_mbps",
-    "nic_drop_s", "top_processes",
+    "nic_drop_s", "freq_min_mhz", "freq_median_mhz", "freq_max_mhz",
+    "top_processes",
 )
 PROCESS_CSV_COLUMNS = (
     "t_rel_sec", "threads", "vmrss_mb", "vmsize_mb", "vmas", "minflt_s",
-    "hot_cpu", "hot_cpu_pct", "hot_freq_mhz", "max_core_freq_mhz",
+    "hot_thread_last_cpu", "hot_thread_cpu_pct",
 )
+PERF_CSV_COLUMNS = ("t_rel_sec", "effective_ghz", "busy_ratio")
 
 
 def write_dict_csv(out_dir, samples, columns, filename):
@@ -2084,8 +2173,15 @@ def print_report(summary):
         def pv(key, fmt="%.0f"):
             e = procm.get(key)
             return "n/a" if not e else ("%s..%s" % (fmt % e["min"], fmt % e["max"]))
-        print("  publisher (info): threads %s  vmas %s  hot core %s%% @ %s MHz" % (
-            pv("threads"), pv("vmas"), pv("hot_cpu_pct"), pv("hot_freq_mhz")))
+        print("  publisher (info): threads %s  vmas %s  busiest thread %s%%" % (
+            pv("threads"), pv("vmas"), pv("hot_thread_cpu_pct")))
+    clock = summary.get("publisher_clock") or {}
+    if clock.get("effective_ghz"):
+        e = clock["effective_ghz"]
+        print("  publisher clock : %.2f..%.2f GHz effective (cycles/task-clock)"
+              % (e["min"], e["max"]))
+    elif clock.get("unavailable_reason"):
+        print("  publisher clock : n/a (%s)" % clock["unavailable_reason"])
     probe = summary.get("probe")
     if probe:
         print("  probe (info)  : cpu mean=%s%% max=%s%%, rss max=%sMB%s" % (
@@ -2220,6 +2316,7 @@ def main():
     monitor = None
     system_monitor = None
     process_monitor = None
+    perf_counter = None
     probe_popen = None
     probe_monitor = None
     sensors = {}
@@ -2262,6 +2359,10 @@ def main():
         if pid is not None:
             process_monitor = ProcessMonitor(pid, args.resource_interval)
             process_monitor.start()
+            perf_counter = PerfCounter(pid, args.resource_interval)
+            if not perf_counter.start_if_possible():
+                print("note: no process-attributed clock (%s)"
+                      % perf_counter.unavailable_reason, flush=True)
 
         backend.init_client()
         topics = backend.discover_sensor_topics(args.expected_sensors, args.startup_timeout)
@@ -2316,7 +2417,7 @@ def main():
                 break
             time.sleep(0.5)
     finally:
-        for extra in (system_monitor, process_monitor):
+        for extra in (system_monitor, process_monitor, perf_counter):
             if extra is not None:
                 extra.stop()
                 extra.join(timeout=5)
@@ -2398,13 +2499,19 @@ def main():
         "system": (summarise_samples(
             system_monitor.samples,
             ("cpu_busy_pct", "cpu_max_core_pct", "temp_c", "udp_in_s",
-             "udp_rcvbuf_err_s", "nic_rx_mbps", "nic_drop_s"))
+             "udp_rcvbuf_err_s", "nic_rx_mbps", "nic_drop_s",
+             "freq_min_mhz", "freq_median_mhz", "freq_max_mhz"))
             if system_monitor is not None else None),
         "publisher_process": (summarise_samples(
             process_monitor.samples,
             ("threads", "vmrss_mb", "vmsize_mb", "vmas", "minflt_s",
-             "hot_cpu_pct", "hot_freq_mhz", "max_core_freq_mhz"))
+             "hot_thread_cpu_pct"))
             if process_monitor is not None else None),
+        "publisher_clock": ({"unavailable_reason": perf_counter.unavailable_reason,
+                             "samples": len(perf_counter.samples),
+                             **summarise_samples(perf_counter.samples,
+                                                 ("effective_ghz", "busy_ratio"))}
+                            if perf_counter is not None else None),
         "sensors": sensor_results,
         "sensor_info": info_result,
         "process": process_result,
@@ -2423,6 +2530,9 @@ def main():
     if process_monitor is not None:
         write_dict_csv(out_dir, process_monitor.samples, PROCESS_CSV_COLUMNS,
                        "resource_process.csv")
+    if perf_counter is not None and perf_counter.samples:
+        write_dict_csv(out_dir, perf_counter.samples, PERF_CSV_COLUMNS,
+                       "publisher_clock.csv")
     if monitor is not None:
         write_resource_csv(out_dir, monitor)
     if probe_monitor is not None:
