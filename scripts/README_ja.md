@@ -156,9 +156,21 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
 Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが
 結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
 
+- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
+  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
 - `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
-- `publisher_sockets` … **Publisher が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）。
-  カーネルはソケット生成時の `*mem_default` を焼き込むため、sysctl の現在値ではなくこちらが実効値
+- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）。
+  カーネルはソケット生成時の `*mem_default` を焼き込むため、sysctl の現在値ではなくこちらが実効値。
+  送信側だけでなく**受信側も記録**する
+- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
+  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
+- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
+  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
+- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
+  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
+  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
+  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
+- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
 - `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
   **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
 - `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。

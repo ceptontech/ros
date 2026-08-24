@@ -676,6 +676,133 @@ def socket_buffers(pid):
     return socks
 
 
+def dmi_info():
+    """Machine vendor/model/BIOS from DMI, so a result names the hardware."""
+    keys = {"sys_vendor": "vendor", "product_name": "product",
+            "product_version": "product_version", "board_name": "board",
+            "bios_version": "bios_version", "bios_date": "bios_date"}
+    out = {}
+    for src_name, key in keys.items():
+        v = _read_text("/sys/class/dmi/id/" + src_name)
+        if v and v not in ("To be filled by O.E.M.", "Default string"):
+            out[key] = v
+    return out or None
+
+
+def os_release():
+    text = _read_text("/etc/os-release")
+    if not text:
+        return None
+    out = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            out[k] = v.strip().strip('"')
+    return {"name": out.get("PRETTY_NAME"), "id": out.get("ID"),
+            "version_id": out.get("VERSION_ID")}
+
+
+def kernel_cmdline():
+    """Boot parameters; isolcpus/nohz_full/mitigations change latency."""
+    return _read_text("/proc/cmdline")
+
+
+def _ethtool_kv(iface, flag=None):
+    """Parse `ethtool [flag] <iface>` into a flat key: value dict.
+
+    Continuation lines (the wrapped link-mode lists) carry no colon and are
+    skipped, which leaves the single-line settings this records.
+    """
+    text = _run(["ethtool", iface] if flag is None else ["ethtool", flag, iface])
+    if text is None:
+        return None
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        v = v.strip()
+        if v:
+            out[k.strip()] = v
+    return out or None
+
+
+def nic_info(iface):
+    """MTU, link, driver, coalescing, offloads and ring sizes of the sensor NIC.
+
+    Interrupt coalescing and GRO/LRO decide when the kernel hands a burst of
+    packets up the stack, which is exactly the kind of setting that turns a
+    steady sensor stream into an uneven one.
+    """
+    if not iface:
+        return None
+    drv = _ethtool_kv(iface, "-i") or {}
+    link = _ethtool_kv(iface) or {}
+    info = {
+        "interface": iface,
+        "mtu": _read_int("/sys/class/net/%s/mtu" % iface),
+        # /sys reports the negotiated speed; ethtool also says how it got there.
+        "speed_mbps": _read_int("/sys/class/net/%s/speed" % iface),
+        "driver": drv.get("driver"),
+        "driver_version": drv.get("version"),
+        "firmware_version": drv.get("firmware-version"),
+        "bus_info": drv.get("bus-info"),
+        "link_speed": link.get("Speed"),
+        "duplex": link.get("Duplex"),
+        "autonegotiation": link.get("Auto-negotiation"),
+        "port": link.get("Port"),
+        "link_detected": link.get("Link detected"),
+        "driver_info": drv or None,
+        "link_info": link or None,
+        "coalescing": _ethtool_kv(iface, "-c"),
+        "ring": _ethtool_kv(iface, "-g"),
+    }
+    offloads = _run(["ethtool", "-k", iface])
+    if offloads:
+        feats = {}
+        for line in offloads.splitlines()[1:]:
+            line = line.strip()
+            if ":" in line:
+                k, _, v = line.partition(":")
+                feats[k.strip()] = v.strip()
+        info["offloads"] = feats or None
+    return info
+
+
+def firewall_state():
+    """Whether anything is filtering on the path. Unprivileged best effort."""
+    out = {}
+    for svc in ("ufw", "firewalld", "nftables", "iptables"):
+        state = _run(["systemctl", "is-active", svc])
+        if state is not None:
+            out[svc] = state.strip()
+    modules = _read_text("/proc/modules") or ""
+    loaded = [m for m in ("nf_tables", "ip_tables", "iptable_filter",
+                          "nf_conntrack") if m + " " in modules]
+    out["netfilter_modules_loaded"] = loaded
+    return out or None
+
+
+def rmw_in_use(pid):
+    """The rmw actually loaded by the publisher, not what the env var says.
+
+    RMW_IMPLEMENTATION is usually unset and the distro default applies, so the
+    environment variable alone does not identify the middleware in use.
+    """
+    if not pid:
+        return None
+    try:
+        with open("/proc/%d/maps" % pid) as f:
+            for line in f:
+                idx = line.find("librmw_")
+                if idx >= 0:
+                    return line[idx:].strip().split("/")[-1]
+    except OSError:
+        pass
+    return None
+
+
 def shm_segments():
     """Fast DDS shared-memory segments and their sizes (bytes)."""
     out = {}
@@ -716,7 +843,7 @@ def busiest_interface(sample_sec=1.0):
     return best if deltas[best] > 0 else None
 
 
-def collect_environment(pid, interface, message_bytes=None):
+def collect_environment(processes, interface, message_bytes=None, qos=None):
     """One-shot machine/driver/DDS profile, recorded next to the measurements.
 
     Written before the run so that a result can always be traced back to the
@@ -724,12 +851,17 @@ def collect_environment(pid, interface, message_bytes=None):
     which are invisible in the driver's own parameters yet decide whether a
     multi-megabyte message can leave the publisher without stalling.
     """
+    processes = {k: v for k, v in (processes or {}).items() if v}
+    pid = processes.get("publisher")
     cpu0 = "/sys/devices/system/cpu/cpu0/cpufreq/"
     pstate = "/sys/devices/system/cpu/intel_pstate/"
     env = {
         "host": {
             "hostname": _read_text("/proc/sys/kernel/hostname"),
             "kernel": _read_text("/proc/sys/kernel/osrelease"),
+            "kernel_cmdline": kernel_cmdline(),
+            "os": os_release(),
+            "machine": dmi_info(),
             "cpu_model": next((line.split(":", 1)[1].strip()
                                for line in (_read_text("/proc/cpuinfo") or "").splitlines()
                                if line.startswith("model name")), None),
@@ -754,17 +886,19 @@ def collect_environment(pid, interface, message_bytes=None):
             "ROS_LOCALHOST_ONLY", "FASTRTPS_DEFAULT_PROFILES_FILE",
             "FASTDDS_DEFAULT_PROFILES_FILE", "CYCLONEDDS_URI")},
         "dds_shm_segments": shm_segments(),
+        "rmw_loaded": rmw_in_use(pid),
+        "nic": nic_info(interface),
+        "firewall": firewall_state(),
         "sensor_interface": interface,
-        "publisher_pid": pid,
-        "publisher_sockets": socket_buffers(pid) if pid else None,
+        "topic_qos": qos,
+        "pids": processes,
+        "sockets": {name: socket_buffers(p) for name, p in processes.items()},
         "driver_revision": (_run(["git", "-C", str(REPO_ROOT), "describe",
                                   "--tags", "--always", "--dirty"]) or "").strip() or None,
     }
-    if interface:
-        env["nic_ring"] = (_run(["ethtool", "-g", interface]) or "").strip() or None
-
     # Smallest send buffer the publisher's sockets got, against one message.
-    snd = [s["snd_buf"] for s in (env["publisher_sockets"] or []) if s.get("snd_buf")]
+    snd = [s["snd_buf"] for s in (env["sockets"].get("publisher") or [])
+           if s.get("snd_buf")]
     if snd:
         env["min_send_buffer_bytes"] = min(snd)
         if message_bytes:
@@ -932,6 +1066,14 @@ class RosBackend:
     def subscribe(self, topic, on_message):
         """on_message(arrival_sec, stamp_sec, width)."""
         raise NotImplementedError
+
+    def topic_qos(self, topics):
+        """QoS of every endpoint on `topics`, or None where the concept does
+        not exist (ROS1). A publisher and a subscriber disagreeing on
+        reliability or history depth produces exactly the kind of uneven
+        delivery this test looks for, so both sides are recorded.
+        """
+        return None
 
     def subscribe_sensor_info(self, on_info):
         """Subscribe to the unified sensor info topic.
@@ -1259,6 +1401,30 @@ class Ros2Backend(RosBackend):
             on_message(arrival, stamp, msg.width)
 
         self._node.create_subscription(PointCloud2, topic, typed_cb, 200)
+
+    def topic_qos(self, topics):
+        def describe(info):
+            q = info.qos_profile
+            return {
+                "node": "%s/%s" % (info.node_namespace.rstrip("/"), info.node_name),
+                "reliability": str(q.reliability).rsplit(".", 1)[-1],
+                "durability": str(q.durability).rsplit(".", 1)[-1],
+                "history": str(q.history).rsplit(".", 1)[-1],
+                "depth": q.depth,
+                "liveliness": str(q.liveliness).rsplit(".", 1)[-1],
+            }
+        out = {}
+        for topic in topics:
+            try:
+                out[topic] = {
+                    "publishers": [describe(i) for i in
+                                   self._node.get_publishers_info_by_topic(topic)],
+                    "subscriptions": [describe(i) for i in
+                                      self._node.get_subscriptions_info_by_topic(topic)],
+                }
+            except Exception as exc:  # rclpy raises assorted types here
+                out[topic] = {"error": str(exc)}
+        return out or None
 
     def subscribe_sensor_info(self, on_info):
         try:
@@ -2077,6 +2243,25 @@ def print_report(summary):
         print("  socket buffers (sysctl): rmem %s/%s  wmem %s/%s  (default/max)" % (
             sc.get("net.core.rmem_default"), sc.get("net.core.rmem_max"),
             sc.get("net.core.wmem_default"), sc.get("net.core.wmem_max")))
+        qos = env.get("topic_qos") or {}
+        for topic, ends in list(qos.items())[:1]:
+            pubs = ends.get("publishers") or []
+            subs = ends.get("subscriptions") or []
+            if pubs or subs:
+                print("  qos %-19s: pub %s  sub %s" % (
+                    topic,
+                    "/".join("%s depth=%s" % (p["reliability"], p["depth"]) for p in pubs[:1]) or "-",
+                    "/".join("%s depth=%s" % (s["reliability"], s["depth"]) for s in subs[:1]) or "-"))
+        nic = env.get("nic") or {}
+        if nic:
+            coal = nic.get("coalescing") or {}
+            print("  nic                    : %s (%s) mtu=%s link=%s %s autoneg=%s" % (
+                nic.get("interface"), nic.get("driver"), nic.get("mtu"),
+                nic.get("link_speed"), nic.get("duplex"),
+                nic.get("autonegotiation")))
+            print("  nic coalescing         : rx-usecs=%s rx-frames=%s adaptive-rx=%s" % (
+                coal.get("rx-usecs", "n/a"), coal.get("rx-frames", "n/a"),
+                coal.get("Adaptive RX", "n/a")))
         ratio = env.get("message_per_send_buffer")
         if ratio is not None:
             print("  publisher send buffer  : %s B for a %s B message (message is "
@@ -2339,6 +2524,7 @@ def main():
     process_monitor = None
     perf_counter = None
     probe_popen = None
+    probe_pid = None
     probe_monitor = None
     sensors = {}
     environment = None
@@ -2364,17 +2550,7 @@ def main():
             monitor = ResourceMonitor(pid, popen, args.resource_interval)
             monitor.start()
 
-        # Snapshot the machine before measuring: kernel socket buffers, CPU
-        # scaling and DDS settings are invisible in the driver's parameters but
-        # decide whether a multi-megabyte message leaves the publisher cleanly.
         interface = args.sensor_interface or busiest_interface()
-        environment = collect_environment(
-            pid, interface,
-            message_bytes=(args.expected_points * args.aggregation_frame_count * 32
-                           if args.expected_points > 0 else None))
-        (out_dir / "environment.json").write_text(
-            json.dumps(environment, indent=2, ensure_ascii=False))
-
         system_monitor = SystemMonitor(args.system_interval, interface)
         system_monitor.start()
         if pid is not None:
@@ -2411,7 +2587,7 @@ def main():
             backend.spin_background()
             print("launching C++ probe for %d sensor topics" % len(topics),
                   flush=True)
-            probe_popen, probe_pid = backend.launch_probe(topics, str(out_dir))
+            probe_popen, probe_pid = backend.launch_probe(topics, str(out_dir))  # noqa: F841
             print("probe launched; monitoring pid %d" % probe_pid, flush=True)
             probe_monitor = ResourceMonitor(probe_pid, probe_popen,
                                             args.resource_interval)
@@ -2424,6 +2600,20 @@ def main():
                 sensors[topic] = sd
                 backend.subscribe(topic, lambda a, s, w, _sd=sd: _sd.add(a, s, w))
             backend.spin_background()
+
+        # Snapshot the machine now that both ends are running: this is the
+        # first moment the subscriber's sockets and both sides' QoS exist, and
+        # kernel socket buffers are the setting most likely to decide whether a
+        # multi-megabyte message leaves the publisher cleanly -- none of which
+        # appears anywhere in the driver's own parameters.
+        subscriber_pid = probe_pid if args.rate_method == "probe" else os.getpid()
+        environment = collect_environment(
+            {"publisher": pid, "subscriber": subscriber_pid}, interface,
+            message_bytes=(args.expected_points * args.aggregation_frame_count * 32
+                           if args.expected_points > 0 else None),
+            qos=backend.topic_qos(topics))
+        (out_dir / "environment.json").write_text(
+            json.dumps(environment, indent=2, ensure_ascii=False))
 
         # Run for the requested duration, bailing early on a crash.
         deadline = time.time() + args.duration
