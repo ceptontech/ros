@@ -332,6 +332,15 @@ class PerfCounter(threading.Thread):
     being created per message. Needs CAP_PERFMON or a permissive
     perf_event_paranoid; when that is unavailable nothing is recorded rather
     than substituting a number that cannot be attributed.
+
+    OFF BY DEFAULT (--perf-clock), because it is the one measurement here that
+    touches the process under test. Counting mode takes no sample interrupts,
+    but per-task events are saved and restored on every context switch of the
+    target and are cloned into every thread it creates -- and a driver that
+    spawns a publish thread per message is an unfavourable case for that. The
+    overhead is expected to be well under 1% and has not been measured, which
+    is precisely why it is not on by default for a publisher already running
+    close to its per-message budget.
     """
 
     def __init__(self, pid, interval):
@@ -2271,6 +2280,13 @@ def parse_args():
                    help="RSS growth fail threshold in MB/min (default: 1.0)")
     p.add_argument("--cpu-growth-threshold", type=float, default=5.0,
                    help="CPU growth fail threshold in %%/min (default: 5.0)")
+    p.add_argument("--perf-clock", action="store_true",
+                   help="Measure the publisher's effective clock with `perf "
+                        "stat` (cycles/task-clock). OFF by default: it is the "
+                        "only probe here that attaches to the process under "
+                        "test, and its per-task counters are cloned into every "
+                        "thread the driver spawns. Needs CAP_PERFMON or a "
+                        "permissive perf_event_paranoid.")
     p.add_argument("--system-interval", type=float, default=5.0,
                    help="Sampling interval in seconds for the machine-wide "
                         "metrics (CPU, kernel UDP counters, NIC, top "
@@ -2359,10 +2375,11 @@ def main():
         if pid is not None:
             process_monitor = ProcessMonitor(pid, args.resource_interval)
             process_monitor.start()
-            perf_counter = PerfCounter(pid, args.resource_interval)
-            if not perf_counter.start_if_possible():
-                print("note: no process-attributed clock (%s)"
-                      % perf_counter.unavailable_reason, flush=True)
+            if args.perf_clock:
+                perf_counter = PerfCounter(pid, args.resource_interval)
+                if not perf_counter.start_if_possible():
+                    print("note: no process-attributed clock (%s)"
+                          % perf_counter.unavailable_reason, flush=True)
 
         backend.init_client()
         topics = backend.discover_sensor_topics(args.expected_sensors, args.startup_timeout)

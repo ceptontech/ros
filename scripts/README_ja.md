@@ -112,6 +112,7 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--resource-interval` | `1.0` | Publisher の CPU/メモリ・プロセス内部のサンプリング間隔（秒） |
 | `--system-interval` | `5.0` | マシン全体（CPU/UDP/NIC/上位プロセス）のサンプリング間隔（秒）。`/proc` 全走査を伴うため粗め |
 | `--sensor-interface` | 自動検出 | センサデータが届く NIC 名。`environment.json` の記録と NIC 統計に使用 |
+| `--perf-clock` | (off) | `perf stat` で Publisher の実効クロックを計測。**既定で無効**（下記参照） |
 | `--startup-timeout` | `30.0` | 台ごとトピック検出の待機上限（秒） |
 | `--config-path` | 版ごとの既定 YAML | 元にするパラメータファイル |
 | `--output-dir` | `scripts/stability_output/<日時>` | 出力先 |
@@ -201,9 +202,20 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `resource_process.csv` … Publisher プロセスの内部。`threads` / `vmrss_mb` / `vmsize_mb` /
   `vmas` / `minflt_s` / `hot_thread_cpu_pct`（最も CPU を使ったスレッドの利用率）/
   `hot_thread_last_cpu`（読み取り時点で最後に載っていたコア。**滞在時間ではない**）
-- `publisher_clock.csv` … `perf` が使える場合のみ。`effective_ghz` = `cycles / task-clock` で、
+- `publisher_clock.csv` … `--perf-clock` 指定時のみ。`effective_ghz` = `cycles / task-clock` で、
   **プロセスに帰属した実効クロック**。スレッドがコアを渡り歩いても正しく積算される。
-  `perf_event_paranoid` が高いと取得できず、その理由が `summary.json` に記録される
+  `perf_event_paranoid` が高いと取得できず、その理由が `summary.json` に記録される。
+
+  **既定で無効な理由**: 本スクリプトの計測はすべて `/proc`・`/sys` の読み取りで被試験プロセスに
+  触れませんが、`perf stat -p` だけは例外で per-task イベントを対象プロセスに取り付けます。
+  サンプリング割り込みは発生しない（カウンティングモード）ものの、対象のコンテキストスイッチ毎に
+  カウンタの退避/復元が入り、さらに**対象が生成する全スレッドにイベントが複製されます**。
+  ROS2 ドライバは publish 毎にスレッドを生成する（毎秒 10 個）ため、この点で不利な形です。
+  オーバーヘッドは 1% を大きく下回ると見積もられますが未実測であり、publish が 1 メッセージ
+  あたりの予算ぎりぎりで動いている状況では計測行為が現象を変え得ます。必要なときだけ
+  明示的に有効化してください。被試験プロセスに一切触れない代替として `turbostat` の
+  per-core `Bzy_MHz`（要 root）があり、マシンがほぼアイドルで Publisher が支配的な負荷なら
+  良い近似になります
 - `system.png` … マシン CPU・ホットコア周波数・温度・NIC 受信の経時変化。
   点群が束になって届いた区間を網掛けで重ねてあり、配信が乱れている間もマシン側が
   平坦かどうかを一目で確認できる
