@@ -228,6 +228,451 @@ class ResourceMonitor(threading.Thread):
 
 
 # --------------------------------------------------------------------------- #
+# System-wide and per-process sampling
+# --------------------------------------------------------------------------- #
+def _cpu_jiffies():
+    """(total, idle) jiffies for the whole machine and for each core."""
+    out = {}
+    try:
+        with open("/proc/stat") as f:
+            for line in f:
+                if not line.startswith("cpu"):
+                    break
+                fields = line.split()
+                if fields[0] != "cpu" and not fields[0][3:].isdigit():
+                    continue
+                v = [int(x) for x in fields[1:9]]
+                out[fields[0]] = (sum(v), v[3] + v[4])  # total, idle + iowait
+    except (OSError, ValueError, IndexError):
+        pass
+    return out
+
+
+def _udp_counters():
+    """(InDatagrams, RcvbufErrors) from the second Udp: line of /proc/net/snmp."""
+    try:
+        with open("/proc/net/snmp") as f:
+            seen = 0
+            for line in f:
+                if line.startswith("Udp:"):
+                    seen += 1
+                    if seen == 2:
+                        fields = line.split()
+                        return int(fields[1]), int(fields[5])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None, None
+
+
+def _net_rx_softirq():
+    try:
+        with open("/proc/softirqs") as f:
+            for line in f:
+                if line.strip().startswith("NET_RX"):
+                    return sum(int(x) for x in line.split()[1:])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _top_processes(prev, interval, count=3):
+    """(comm, cpu_percent) of the processes that burned the most CPU.
+
+    Also returns the fresh table so the caller can diff against it next time.
+    """
+    cur = {}
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return [], cur
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % entry) as f:
+                data = f.read()
+            rp = data.rfind(")")
+            rest = data[rp + 2:].split()
+            cur[int(entry)] = (data[data.find("(") + 1:rp],
+                               int(rest[11]) + int(rest[12]))
+        except (OSError, ValueError, IndexError):
+            continue
+    hz = os.sysconf("SC_CLK_TCK")
+    deltas = [((cur[k][1] - prev[k][1]), cur[k][0]) for k in cur if k in prev]
+    deltas.sort(reverse=True)
+    top = [(name, 100.0 * d / hz / interval) for d, name in deltas[:count] if d > 0]
+    return top, cur
+
+
+class SystemMonitor(threading.Thread):
+    """Whole-machine sampling: everything the per-process monitor cannot see.
+
+    The publisher's own CPU time says nothing about a machine that is
+    descheduling it, dropping its packets in the kernel, or clocking its core
+    down, so those are recorded alongside. Everything here is a read of /proc
+    or /sys; the process under test is never touched.
+    """
+
+    def __init__(self, interval, interface):
+        super().__init__(daemon=True)
+        self.interval = interval
+        self.interface = interface
+        self.samples = []  # dicts, see SYSTEM_CSV_COLUMNS
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def _nic(self, stat):
+        if not self.interface:
+            return None
+        return _read_int("/sys/class/net/%s/statistics/%s" % (self.interface, stat))
+
+    def run(self):
+        t0 = time.time()
+        prev_cpu = _cpu_jiffies()
+        prev_udp = _udp_counters()
+        prev_sirq = _net_rx_softirq()
+        prev_rx = self._nic("rx_bytes")
+        prev_drop = self._nic("rx_dropped")
+        prev_procs = {}
+        _top, prev_procs = _top_processes(prev_procs, self.interval)
+        while not self._stop_event.wait(self.interval):
+            now = time.time()
+            cpu = _cpu_jiffies()
+            udp = _udp_counters()
+            sirq = _net_rx_softirq()
+            rx = self._nic("rx_bytes")
+            drop = self._nic("rx_dropped")
+            top, prev_procs = _top_processes(prev_procs, self.interval)
+
+            def busy(key):
+                if key not in cpu or key not in prev_cpu:
+                    return None
+                d = cpu[key][0] - prev_cpu[key][0]
+                return 100.0 * (1 - (cpu[key][1] - prev_cpu[key][1]) / d) if d else None
+
+            per_core = [busy(k) for k in cpu if k != "cpu"]
+            per_core = [v for v in per_core if v is not None]
+
+            def rate(now_v, prev_v):
+                if now_v is None or prev_v is None:
+                    return None
+                return (now_v - prev_v) / self.interval
+
+            self.samples.append({
+                "t_rel_sec": now - t0,
+                "cpu_busy_pct": busy("cpu"),
+                "cpu_max_core_pct": max(per_core) if per_core else None,
+                "load1": _read_text("/proc/loadavg", "").split()[0] or None,
+                "temp_c": max_thermal_c(),
+                "net_rx_softirq_s": rate(sirq, prev_sirq),
+                "udp_in_s": rate(udp[0], prev_udp[0]),
+                "udp_rcvbuf_err_s": rate(udp[1], prev_udp[1]),
+                "nic_rx_mbps": ((rate(rx, prev_rx) * 8 / 1e6)
+                                if None not in (rx, prev_rx) else None),
+                "nic_drop_s": rate(drop, prev_drop),
+                "top_processes": " ".join("%s:%.0f%%" % (n, c) for n, c in top),
+            })
+            prev_cpu, prev_udp, prev_sirq, prev_rx, prev_drop = cpu, udp, sirq, rx, drop
+
+
+def max_thermal_c():
+    best = None
+    try:
+        names = os.listdir("/sys/class/thermal")
+    except OSError:
+        return None
+    for name in names:
+        if not name.startswith("thermal_zone"):
+            continue
+        v = _read_int("/sys/class/thermal/%s/temp" % name)
+        if v is not None:
+            c = v / 1000.0
+            best = c if best is None else max(best, c)
+    return best
+
+
+def _core_freq_mhz(cpu):
+    v = _read_int("/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq" % cpu)
+    return v / 1000.0 if v else None
+
+
+class ProcessMonitor(threading.Thread):
+    """Internals of the process under test, and the core its hot thread runs on.
+
+    Averaging scaling_cur_freq over every core is useless when one thread is
+    the bottleneck and the rest of the machine is idle, so the busiest thread
+    is located each interval and only its core's frequency is recorded.
+    """
+
+    def __init__(self, pid, interval):
+        super().__init__(daemon=True)
+        self.pid = pid
+        self.interval = interval
+        self.samples = []
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def _threads(self):
+        """{tid: (cpu, ticks, voluntary_cs, involuntary_cs)} for every thread."""
+        out = {}
+        try:
+            tids = os.listdir("/proc/%d/task" % self.pid)
+        except OSError:
+            return out
+        for tid in tids:
+            try:
+                with open("/proc/%d/task/%s/stat" % (self.pid, tid)) as f:
+                    data = f.read()
+                r = data[data.rfind(")") + 2:].split()
+                out[int(tid)] = (int(r[36]), int(r[11]) + int(r[12]),
+                                 int(r[7]), int(r[8]))  # cpu, ticks, minflt-ish
+            except (OSError, ValueError, IndexError):
+                continue
+        return out
+
+    def _vma_count(self):
+        try:
+            with open("/proc/%d/maps" % self.pid) as f:
+                return sum(1 for _ in f)
+        except OSError:
+            return None
+
+    def run(self):
+        t0 = time.time()
+        hz = os.sysconf("SC_CLK_TCK")
+        prev = self._threads()
+        prev_minflt = self._minflt()
+        while not self._stop_event.wait(self.interval):
+            now = time.time()
+            cur = self._threads()
+            if not cur:
+                break
+            hot_tid, hot_delta = None, -1
+            for tid, (_cpu, ticks, _a, _b) in cur.items():
+                d = ticks - prev.get(tid, (0, ticks, 0, 0))[1]
+                if d > hot_delta:
+                    hot_tid, hot_delta = tid, d
+            hot_cpu = cur[hot_tid][0] if hot_tid is not None else None
+            minflt = self._minflt()
+            self.samples.append({
+                "t_rel_sec": now - t0,
+                "threads": len(cur),
+                "vmrss_mb": read_rss_mb(self.pid),
+                "vmsize_mb": self._vmsize_mb(),
+                "vmas": self._vma_count(),
+                "minflt_s": ((minflt - prev_minflt) / self.interval
+                             if minflt is not None and prev_minflt is not None else None),
+                "hot_cpu": hot_cpu,
+                "hot_cpu_pct": 100.0 * hot_delta / hz / self.interval if hot_delta > 0 else 0.0,
+                "hot_freq_mhz": _core_freq_mhz(hot_cpu) if hot_cpu is not None else None,
+                "max_core_freq_mhz": self._max_freq(),
+            })
+            prev, prev_minflt = cur, minflt
+
+    def _minflt(self):
+        try:
+            with open("/proc/%d/stat" % self.pid) as f:
+                data = f.read()
+            return int(data[data.rfind(")") + 2:].split()[7])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def _vmsize_mb(self):
+        try:
+            with open("/proc/%d/status" % self.pid) as f:
+                for line in f:
+                    if line.startswith("VmSize:"):
+                        return int(line.split()[1]) / 1024.0
+        except (OSError, ValueError, IndexError):
+            pass
+        return None
+
+    def _max_freq(self):
+        best = None
+        for i in range(os.cpu_count() or 0):
+            v = _core_freq_mhz(i)
+            if v is not None:
+                best = v if best is None else max(best, v)
+        return best
+
+
+# --------------------------------------------------------------------------- #
+# Environment snapshot
+# --------------------------------------------------------------------------- #
+def _read_text(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def _read_int(path):
+    v = _read_text(path)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sysctl(name):
+    """Read a sysctl through /proc/sys so no external binary is needed."""
+    v = _read_text("/proc/sys/" + name.replace(".", "/"))
+    if v is None:
+        return None
+    parts = v.split()
+    if len(parts) == 1:
+        try:
+            return int(parts[0])
+        except ValueError:
+            return parts[0]
+    return v
+
+
+def _run(cmd, timeout=5.0):
+    """Best-effort external command; None when it is unavailable or fails."""
+    try:
+        out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
+
+
+def socket_buffers(pid):
+    """(local_addr, rcv_buf, snd_buf) of the process's UDP sockets, via `ss`.
+
+    The kernel applies net.core.{r,w}mem_default when the socket is created, so
+    these are the values the DDS transport actually got -- which is what
+    matters, not what the sysctl says now.
+    """
+    text = _run(["ss", "-ulmnp"])
+    if text is None:
+        return None
+    want = "pid=%d," % pid
+    socks = []
+    line = ""
+    for raw in text.splitlines():
+        s = raw.strip()
+        if s.startswith("skmem:"):
+            if want in line or (",%d," % pid) in line:
+                fields = {}
+                for part in s[len("skmem:("):].rstrip(")").split(","):
+                    for key in ("rb", "tb"):
+                        if part.startswith(key):
+                            fields[key] = int(part[len(key):])
+                # ss columns: State Recv-Q Send-Q Local:Port Peer:Port Process
+                cols = line.split()
+                socks.append({"local": cols[3] if len(cols) > 3 else "?",
+                              "rcv_buf": fields.get("rb"),
+                              "snd_buf": fields.get("tb")})
+        else:
+            line = raw
+    return socks
+
+
+def shm_segments():
+    """Fast DDS shared-memory segments and their sizes (bytes)."""
+    out = {}
+    try:
+        for name in os.listdir("/dev/shm"):
+            if name.startswith("fastrtps") and not name.endswith("_el"):
+                try:
+                    out[name] = os.path.getsize("/dev/shm/" + name)
+                except OSError:
+                    pass
+    except OSError:
+        return None
+    return out
+
+
+def busiest_interface(sample_sec=1.0):
+    """Interface receiving the most bytes right now (the sensor link)."""
+    def rx():
+        out = {}
+        try:
+            names = os.listdir("/sys/class/net")
+        except OSError:
+            return out
+        for n in names:
+            if n == "lo":
+                continue
+            v = _read_int("/sys/class/net/%s/statistics/rx_bytes" % n)
+            if v is not None:
+                out[n] = v
+        return out
+    a = rx()
+    time.sleep(sample_sec)
+    b = rx()
+    deltas = {n: b[n] - a[n] for n in b if n in a}
+    if not deltas:
+        return None
+    best = max(deltas, key=deltas.get)
+    return best if deltas[best] > 0 else None
+
+
+def collect_environment(pid, interface, message_bytes=None):
+    """One-shot machine/driver/DDS profile, recorded next to the measurements.
+
+    Written before the run so that a result can always be traced back to the
+    configuration that produced it -- kernel socket buffers in particular,
+    which are invisible in the driver's own parameters yet decide whether a
+    multi-megabyte message can leave the publisher without stalling.
+    """
+    cpu0 = "/sys/devices/system/cpu/cpu0/cpufreq/"
+    pstate = "/sys/devices/system/cpu/intel_pstate/"
+    env = {
+        "host": {
+            "hostname": _read_text("/proc/sys/kernel/hostname"),
+            "kernel": _read_text("/proc/sys/kernel/osrelease"),
+            "cpu_model": next((line.split(":", 1)[1].strip()
+                               for line in (_read_text("/proc/cpuinfo") or "").splitlines()
+                               if line.startswith("model name")), None),
+            "cpu_count": os.cpu_count(),
+        },
+        "cpu_scaling": {
+            "governor": _read_text(cpu0 + "scaling_governor"),
+            "driver": _read_text(cpu0 + "scaling_driver"),
+            "energy_performance_preference": _read_text(cpu0 + "energy_performance_preference"),
+            "intel_pstate_status": _read_text(pstate + "status"),
+            "intel_pstate_no_turbo": _read_int(pstate + "no_turbo"),
+            "intel_pstate_min_perf_pct": _read_int(pstate + "min_perf_pct"),
+            "intel_pstate_max_perf_pct": _read_int(pstate + "max_perf_pct"),
+        },
+        "sysctl": {k: _sysctl(k) for k in (
+            "net.core.rmem_max", "net.core.rmem_default",
+            "net.core.wmem_max", "net.core.wmem_default",
+            "net.core.optmem_max", "net.core.netdev_max_backlog",
+            "net.ipv4.udp_mem", "net.ipv4.udp_rmem_min")},
+        "ros": {k: os.environ.get(k) for k in (
+            "ROS_DISTRO", "ROS_VERSION", "RMW_IMPLEMENTATION", "ROS_DOMAIN_ID",
+            "ROS_LOCALHOST_ONLY", "FASTRTPS_DEFAULT_PROFILES_FILE",
+            "FASTDDS_DEFAULT_PROFILES_FILE", "CYCLONEDDS_URI")},
+        "dds_shm_segments": shm_segments(),
+        "sensor_interface": interface,
+        "publisher_pid": pid,
+        "publisher_sockets": socket_buffers(pid) if pid else None,
+        "driver_revision": (_run(["git", "-C", str(REPO_ROOT), "describe",
+                                  "--tags", "--always", "--dirty"]) or "").strip() or None,
+    }
+    if interface:
+        env["nic_ring"] = (_run(["ethtool", "-g", interface]) or "").strip() or None
+
+    # Smallest send buffer the publisher's sockets got, against one message.
+    snd = [s["snd_buf"] for s in (env["publisher_sockets"] or []) if s.get("snd_buf")]
+    if snd:
+        env["min_send_buffer_bytes"] = min(snd)
+        if message_bytes:
+            env["message_bytes"] = message_bytes
+            env["message_per_send_buffer"] = message_bytes / float(min(snd))
+    return env
+
+
+# --------------------------------------------------------------------------- #
 # Per-sensor measurement buffers
 # --------------------------------------------------------------------------- #
 class SensorData:
@@ -1307,6 +1752,67 @@ def generate_sensor_info_plot(out_dir, info_sensors, nominal_hz, tol, window,
     plt.close(fig)
 
 
+def generate_system_plot(out_dir, system_samples, process_samples, sensors,
+                         nominal_hz, warmup, basis):
+    """Machine state over time, with the point cloud's bunched periods shaded.
+
+    The point of the figure is the overlay: if the delivery cadence degrades
+    while machine CPU, the hot core's clock and temperature stay flat, the
+    cause is not the host, and that is worth being able to see at a glance.
+    """
+    if not system_samples and not process_samples:
+        return
+    plt, _Line2D = _import_matplotlib()
+    if plt is None:
+        return
+
+    # Shade the stretches where arrivals were bunched (dt well under nominal).
+    period = 1.0 / nominal_hz
+    spans = []
+    for sd in sensors.values():
+        times = sd.arrivals if basis == "arrival" else sd.stamps
+        if len(times) < 2:
+            continue
+        t0 = times[0]
+        bucket = {}
+        for i in range(1, len(times)):
+            k = int((times[i] - t0) // 60)
+            hit, total = bucket.get(k, (0, 0))
+            bucket[k] = (hit + (1 if times[i] - times[i - 1] < 0.1 * period else 0),
+                         total + 1)
+        for k in sorted(bucket):
+            hit, total = bucket[k]
+            if total and 100.0 * hit / total > 5.0:
+                spans.append((k * 60.0, (k + 1) * 60.0))
+        break  # one sensor is enough to mark the periods
+
+    panels = [
+        ("Machine CPU [%]", system_samples, "cpu_busy_pct", SENSOR_COLORS[0]),
+        ("Hot core [MHz]", process_samples, "hot_freq_mhz", SENSOR_COLORS[1]),
+        ("Max temp [degC]", system_samples, "temp_c", SENSOR_COLORS[2]),
+        ("NIC rx [Mbps]", system_samples, "nic_rx_mbps", SENSOR_COLORS[3]),
+    ]
+    fig, axes = plt.subplots(len(panels), 1, figsize=(11, 9), sharex=True)
+    for ax, (label, samples, key, color) in zip(axes, panels):
+        pts = [(s["t_rel_sec"], s[key]) for s in (samples or [])
+               if s.get(key) is not None]
+        if pts:
+            ax.plot([p[0] for p in pts], [p[1] for p in pts], linewidth=1.0,
+                    color=color)
+        for lo, hi in spans:
+            ax.axvspan(lo, hi, color="#D55E00", alpha=0.12, linewidth=0)
+        if warmup > 0:
+            ax.axvspan(0, warmup, color="0.9", linewidth=0)
+        ax.set_ylabel(label, fontsize=9)
+        ax.grid(True, **GRID_KW)
+    axes[-1].set_xlabel("Elapsed time [s]")
+    axes[0].set_title("Machine state (shaded = point cloud arriving bunched, "
+                      "grey = warmup)")
+    fig.tight_layout()
+    fig.savefig(out_dir / "system.png", dpi=120)
+    plt.close(fig)
+
+
 # --------------------------------------------------------------------------- #
 # CSV output
 # --------------------------------------------------------------------------- #
@@ -1367,6 +1873,26 @@ def write_resource_csv(out_dir, monitor, filename="resource.csv"):
             w.writerow([t, rss, "" if cpu is None else cpu])
 
 
+SYSTEM_CSV_COLUMNS = (
+    "t_rel_sec", "cpu_busy_pct", "cpu_max_core_pct", "load1", "temp_c",
+    "net_rx_softirq_s", "udp_in_s", "udp_rcvbuf_err_s", "nic_rx_mbps",
+    "nic_drop_s", "top_processes",
+)
+PROCESS_CSV_COLUMNS = (
+    "t_rel_sec", "threads", "vmrss_mb", "vmsize_mb", "vmas", "minflt_s",
+    "hot_cpu", "hot_cpu_pct", "hot_freq_mhz", "max_core_freq_mhz",
+)
+
+
+def write_dict_csv(out_dir, samples, columns, filename):
+    path = out_dir / filename
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(columns)
+        for s in samples:
+            w.writerow(["" if s.get(c) is None else s.get(c) for c in columns])
+
+
 def read_probe_csvs(out_dir, topics):
     """Load the CSV files written by the C++ probe into SensorData buffers.
 
@@ -1395,6 +1921,26 @@ def read_probe_csvs(out_dir, topics):
     return sensors
 
 
+def summarise_samples(samples, keys):
+    """min/mean/max per key, plus the total change for the *_s rate columns.
+
+    Recorded, not judged: there is no defensible threshold for these yet, so
+    they carry no pass/fail of their own.
+    """
+    out = {}
+    for k in keys:
+        vals = [s[k] for s in samples if s.get(k) is not None]
+        if not vals:
+            out[k] = None
+            continue
+        entry = {"min": min(vals), "max": max(vals),
+                 "mean": sum(vals) / len(vals)}
+        if k.endswith("_s"):
+            entry["total"] = sum(vals)  # rate x interval is folded in by caller
+        out[k] = entry
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Reporting
 # --------------------------------------------------------------------------- #
@@ -1414,6 +1960,29 @@ def print_report(summary):
         print("  expected_points        : %d per message" %
               summary["expected_points_total"])
     print("  sensors                : %d" % len(summary["sensors"]))
+    env = summary.get("environment") or {}
+    if env:
+        cs = env.get("cpu_scaling", {})
+        sc = env.get("sysctl", {})
+        print("  host                   : %s  kernel %s  %d cores" % (
+            env.get("host", {}).get("hostname"), env.get("host", {}).get("kernel"),
+            env.get("host", {}).get("cpu_count") or 0))
+        print("  cpu scaling            : governor=%s driver=%s epp=%s turbo=%s" % (
+            cs.get("governor"), cs.get("driver"),
+            cs.get("energy_performance_preference"),
+            "off" if cs.get("intel_pstate_no_turbo") else "on"))
+        print("  socket buffers (sysctl): rmem %s/%s  wmem %s/%s  (default/max)" % (
+            sc.get("net.core.rmem_default"), sc.get("net.core.rmem_max"),
+            sc.get("net.core.wmem_default"), sc.get("net.core.wmem_max")))
+        ratio = env.get("message_per_send_buffer")
+        if ratio is not None:
+            print("  publisher send buffer  : %s B for a %s B message (message is "
+                  "%.1fx the buffer)" % (env.get("min_send_buffer_bytes"),
+                                         env.get("message_bytes"), ratio))
+        elif env.get("min_send_buffer_bytes") is not None:
+            print("  publisher send buffer  : %s B" % env["min_send_buffer_bytes"])
+        print("  sensor interface       : %s" % env.get("sensor_interface"))
+        print("  driver revision        : %s" % env.get("driver_revision"))
     print("-" * 76, flush=True)
     basis = summary["rate_basis"]
     for s in summary["sensors"]:
@@ -1497,6 +2066,26 @@ def print_report(summary):
         _fmt(mem.get("min")), _fmt(mem.get("max"))))
     print("  cpu           : %s  (slope=%s %%/min, max=%s%%)" % (
         _pf(cpu["pass"]), _fmt(cpu.get("slope_per_min")), _fmt(cpu.get("max"))))
+    sysm = summary.get("system") or {}
+    if sysm:
+        def rng(key, fmt="%.1f"):
+            e = sysm.get(key)
+            return "n/a" if not e else ("%s..%s" % (fmt % e["min"], fmt % e["max"]))
+        print("  machine (info): cpu %s%%  temp %s degC  nic %s Mbps" % (
+            rng("cpu_busy_pct"), rng("temp_c"), rng("nic_rx_mbps")))
+        for key, label in (("udp_rcvbuf_err_s", "udp rcvbuf err"),
+                           ("nic_drop_s", "nic drops")):
+            e = sysm.get(key)
+            if e:
+                print("  %-14s: %.0f/s peak (recorded only, not a pass criterion)"
+                      % (label, e["max"]))
+    procm = summary.get("publisher_process") or {}
+    if procm:
+        def pv(key, fmt="%.0f"):
+            e = procm.get(key)
+            return "n/a" if not e else ("%s..%s" % (fmt % e["min"], fmt % e["max"]))
+        print("  publisher (info): threads %s  vmas %s  hot core %s%% @ %s MHz" % (
+            pv("threads"), pv("vmas"), pv("hot_cpu_pct"), pv("hot_freq_mhz")))
     probe = summary.get("probe")
     if probe:
         print("  probe (info)  : cpu mean=%s%% max=%s%%, rss max=%sMB%s" % (
@@ -1586,6 +2175,15 @@ def parse_args():
                    help="RSS growth fail threshold in MB/min (default: 1.0)")
     p.add_argument("--cpu-growth-threshold", type=float, default=5.0,
                    help="CPU growth fail threshold in %%/min (default: 5.0)")
+    p.add_argument("--system-interval", type=float, default=5.0,
+                   help="Sampling interval in seconds for the machine-wide "
+                        "metrics (CPU, kernel UDP counters, NIC, top "
+                        "processes). Coarser than --resource-interval because "
+                        "it walks /proc (default: 5.0)")
+    p.add_argument("--sensor-interface", default=None,
+                   help="NIC the sensor data arrives on, recorded in "
+                        "environment.json (default: auto-detect the busiest "
+                        "interface at startup)")
     p.add_argument("--resource-interval", type=float, default=1.0,
                    help="Resource sampling interval in seconds (default: 1.0)")
     p.add_argument("--startup-timeout", type=float, default=30.0,
@@ -1620,9 +2218,12 @@ def main():
 
     popen = None
     monitor = None
+    system_monitor = None
+    process_monitor = None
     probe_popen = None
     probe_monitor = None
     sensors = {}
+    environment = None
     info_sensors = {}
     info_enabled = not args.no_info_check
     topics = []
@@ -1644,6 +2245,23 @@ def main():
             print("publisher launched; monitoring pid %d" % pid, flush=True)
             monitor = ResourceMonitor(pid, popen, args.resource_interval)
             monitor.start()
+
+        # Snapshot the machine before measuring: kernel socket buffers, CPU
+        # scaling and DDS settings are invisible in the driver's parameters but
+        # decide whether a multi-megabyte message leaves the publisher cleanly.
+        interface = args.sensor_interface or busiest_interface()
+        environment = collect_environment(
+            pid, interface,
+            message_bytes=(args.expected_points * args.aggregation_frame_count * 32
+                           if args.expected_points > 0 else None))
+        (out_dir / "environment.json").write_text(
+            json.dumps(environment, indent=2, ensure_ascii=False))
+
+        system_monitor = SystemMonitor(args.system_interval, interface)
+        system_monitor.start()
+        if pid is not None:
+            process_monitor = ProcessMonitor(pid, args.resource_interval)
+            process_monitor.start()
 
         backend.init_client()
         topics = backend.discover_sensor_topics(args.expected_sensors, args.startup_timeout)
@@ -1698,6 +2316,10 @@ def main():
                 break
             time.sleep(0.5)
     finally:
+        for extra in (system_monitor, process_monitor):
+            if extra is not None:
+                extra.stop()
+                extra.join(timeout=5)
         if monitor is not None:
             monitor.stop()
             monitor.join(timeout=5)
@@ -1772,6 +2394,17 @@ def main():
         "info_rate_tolerance": args.info_rate_tolerance,
         "expected_points_total": expected_total,
         "duration_sec": args.duration,
+        "environment": environment,
+        "system": (summarise_samples(
+            system_monitor.samples,
+            ("cpu_busy_pct", "cpu_max_core_pct", "temp_c", "udp_in_s",
+             "udp_rcvbuf_err_s", "nic_rx_mbps", "nic_drop_s"))
+            if system_monitor is not None else None),
+        "publisher_process": (summarise_samples(
+            process_monitor.samples,
+            ("threads", "vmrss_mb", "vmsize_mb", "vmas", "minflt_s",
+             "hot_cpu_pct", "hot_freq_mhz", "max_core_freq_mhz"))
+            if process_monitor is not None else None),
         "sensors": sensor_results,
         "sensor_info": info_result,
         "process": process_result,
@@ -1784,6 +2417,12 @@ def main():
     write_sensor_csvs(out_dir, sensors, nominal_hz)
     if info_enabled:
         write_sensor_info_csv(out_dir, info_sensors)
+    if system_monitor is not None:
+        write_dict_csv(out_dir, system_monitor.samples, SYSTEM_CSV_COLUMNS,
+                       "resource_system.csv")
+    if process_monitor is not None:
+        write_dict_csv(out_dir, process_monitor.samples, PROCESS_CSV_COLUMNS,
+                       "resource_process.csv")
     if monitor is not None:
         write_resource_csv(out_dir, monitor)
     if probe_monitor is not None:
@@ -1791,6 +2430,10 @@ def main():
     generate_plots(out_dir, sensors, monitor, nominal_hz, args.inst_tolerance,
                    args.rate_tolerance, args.rate_window, args.warmup,
                    args.rate_basis)
+    generate_system_plot(out_dir,
+                         system_monitor.samples if system_monitor else [],
+                         process_monitor.samples if process_monitor else [],
+                         sensors, nominal_hz, args.warmup, args.rate_basis)
     if info_enabled:
         generate_sensor_info_plot(out_dir, info_sensors, args.info_rate,
                                   args.info_rate_tolerance,
