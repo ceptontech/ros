@@ -2248,10 +2248,11 @@ def print_report(summary):
             pubs = ends.get("publishers") or []
             subs = ends.get("subscriptions") or []
             if pubs or subs:
+                def endpoint(items):
+                    return ", ".join("%s depth=%s" % (i["reliability"], i["depth"])
+                                     for i in items[:1]) or "-"
                 print("  qos %-19s: pub %s  sub %s" % (
-                    topic,
-                    "/".join("%s depth=%s" % (p["reliability"], p["depth"]) for p in pubs[:1]) or "-",
-                    "/".join("%s depth=%s" % (s["reliability"], s["depth"]) for s in subs[:1]) or "-"))
+                    topic, endpoint(pubs), endpoint(subs)))
         nic = env.get("nic") or {}
         if nic:
             coal = nic.get("coalescing") or {}
