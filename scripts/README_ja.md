@@ -194,11 +194,13 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `resource.csv` … Publisher の RSS(MB) / CPU(%) 時系列
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
 - `environment.json` … **計測時のマシン設定スナップショット**（後述）
-- `resource_system.csv` … マシン全体の時系列。`cpu_busy_pct` / `cpu_max_core_pct` / `load1` /
+- `resource_system.csv` … マシン全体の時系列。`cpu_percent` / `cpu_max_core_pct` / `load1` /
   `temp_c` / `net_rx_softirq_s` / `udp_in_s` / `udp_rcvbuf_err_s` / `nic_rx_mbps` /
   `nic_drop_s` / `freq_{min,median,max}_mhz` / `top_processes`（各窓で CPU を最も食った
   プロセス上位 3 つ）。周波数は**マシン全体の文脈**で、どのコアが被試験プロセスを
-  実行したかは主張しない
+  実行したかは主張しない。`cpu_percent` は **1 コア = 100%** 表記（20 コア全負荷なら 2000%）で、
+  `resource.csv` の Publisher CPU と同じ尺度なので直接読み比べられる。
+  `cpu_max_core_pct` だけは「1 コアの使用率」なので 0〜100
 - `resource_process.csv` … Publisher プロセスの内部。`threads` / `vmrss_mb` / `vmsize_mb` /
   `vmas` / `minflt_s` / `hot_thread_cpu_pct`（最も CPU を使ったスレッドの利用率）/
   `hot_thread_last_cpu`（読み取り時点で最後に載っていたコア。**滞在時間ではない**）

@@ -440,14 +440,17 @@ class SystemMonitor(threading.Thread):
             drop = self._nic("rx_dropped")
             top, prev_procs = _top_processes(prev_procs, self.interval)
 
-            def busy(key):
+            def busy(key, scale=1.0):
                 if key not in cpu or key not in prev_cpu:
                     return None
                 d = cpu[key][0] - prev_cpu[key][0]
-                return 100.0 * (1 - (cpu[key][1] - prev_cpu[key][1]) / d) if d else None
+                if not d:
+                    return None
+                return scale * 100.0 * (1 - (cpu[key][1] - prev_cpu[key][1]) / d)
 
             per_core = [busy(k) for k in cpu if k != "cpu"]
             per_core = [v for v in per_core if v is not None]
+            ncores = len(per_core) or (os.cpu_count() or 1)
             # Machine context only: which clocks the cores were reporting. No
             # claim is made about which of them ran the process under test.
             freqs = sorted(v for v in (_core_freq_mhz(i)
@@ -461,7 +464,9 @@ class SystemMonitor(threading.Thread):
 
             self.samples.append({
                 "t_rel_sec": now - t0,
-                "cpu_busy_pct": busy("cpu"),
+                # One core busy = 100%, matching how the per-process CPU is
+                # reported, so the two can be read against each other.
+                "cpu_percent": busy("cpu", ncores),
                 "cpu_max_core_pct": max(per_core) if per_core else None,
                 "load1": _read_text("/proc/loadavg", "").split()[0] or None,
                 "temp_c": max_thermal_c(),
@@ -1883,7 +1888,7 @@ def generate_system_plot(out_dir, system_samples, process_samples, sensors,
         break  # one sensor is enough to mark the periods
 
     panels = [
-        ("Machine CPU [%]", system_samples, "cpu_busy_pct", SENSOR_COLORS[0]),
+        ("Machine CPU\n[% of one core]", system_samples, "cpu_percent", SENSOR_COLORS[0]),
         ("Core clock [MHz]", system_samples, "freq_max_mhz", SENSOR_COLORS[1]),
         ("Max temp [degC]", system_samples, "temp_c", SENSOR_COLORS[2]),
         ("NIC rx [Mbps]", system_samples, "nic_rx_mbps", SENSOR_COLORS[3]),
@@ -1970,7 +1975,7 @@ def write_resource_csv(out_dir, monitor, filename="resource.csv"):
 
 
 SYSTEM_CSV_COLUMNS = (
-    "t_rel_sec", "cpu_busy_pct", "cpu_max_core_pct", "load1", "temp_c",
+    "t_rel_sec", "cpu_percent", "cpu_max_core_pct", "load1", "temp_c",
     "net_rx_softirq_s", "udp_in_s", "udp_rcvbuf_err_s", "nic_rx_mbps",
     "nic_drop_s", "freq_min_mhz", "freq_median_mhz", "freq_max_mhz",
     "top_processes",
@@ -2169,8 +2174,8 @@ def print_report(summary):
         def rng(key, fmt="%.1f"):
             e = sysm.get(key)
             return "n/a" if not e else ("%s..%s" % (fmt % e["min"], fmt % e["max"]))
-        print("  machine (info): cpu %s%%  temp %s degC  nic %s Mbps" % (
-            rng("cpu_busy_pct"), rng("temp_c"), rng("nic_rx_mbps")))
+        print("  machine (info): cpu %s%% of one core  temp %s degC  nic %s Mbps" % (
+            rng("cpu_percent"), rng("temp_c"), rng("nic_rx_mbps")))
         for key, label in (("udp_rcvbuf_err_s", "udp rcvbuf err"),
                            ("nic_drop_s", "nic drops")):
             e = sysm.get(key)
@@ -2515,7 +2520,7 @@ def main():
         "environment": environment,
         "system": (summarise_samples(
             system_monitor.samples,
-            ("cpu_busy_pct", "cpu_max_core_pct", "temp_c", "udp_in_s",
+            ("cpu_percent", "cpu_max_core_pct", "temp_c", "udp_in_s",
              "udp_rcvbuf_err_s", "nic_rx_mbps", "nic_drop_s",
              "freq_min_mhz", "freq_median_mhz", "freq_max_mhz"))
             if system_monitor is not None else None),
