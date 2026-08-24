@@ -159,9 +159,10 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
   レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
 - `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
-- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）。
-  カーネルはソケット生成時の `*mem_default` を焼き込むため、sysctl の現在値ではなくこちらが実効値。
-  送信側だけでなく**受信側も記録**する
+- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
+  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
+  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
+  `d` は後述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
 - `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
   history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
 - `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
@@ -176,12 +177,22 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
   `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
 - `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
-- `dds_shm_segments` … Fast DDS の共有メモリセグメントとサイズ。
-  **メッセージがセグメントに収まらなければ UDP にフォールバックし、送信バッファが効いてくる**
+- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
+  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
+  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
+  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
+  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
+  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
+  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
+  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
+  `<segment_size>` で変更する
 - `driver_revision` … `git describe`（どのドライバで測ったかの記録）
 
 `udp_rcvbuf_err` と `nic_drop` は記録のみで、合否には含めていません（妥当な閾値をまだ
-持たないため）。レポートには情報行として増分が出ます。
+持たないため）。レポートには情報行として増分が出ます。`udp_rcvbuf_err` は
+`/proc/net/snmp` の `Udp: RcvbufErrors`、すなわち**ホスト全体・全 UDP ソケットの合計（IPv4 のみ）**
+である点に注意してください。特定のソケットに帰属させたいときは `environment.json` の
+`sockets[].drops` を使います。
 
 ### レート/ドロップの 2 つの基準（arrival と stamp）
 

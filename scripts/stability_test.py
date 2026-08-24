@@ -645,11 +645,15 @@ def _run(cmd, timeout=5.0):
 
 
 def socket_buffers(pid):
-    """(local_addr, rcv_buf, snd_buf) of the process's UDP sockets, via `ss`.
+    """(local_addr, rcv_buf, snd_buf, drops) of the process's UDP sockets.
 
     The kernel applies net.core.{r,w}mem_default when the socket is created, so
     these are the values the DDS transport actually got -- which is what
     matters, not what the sysctl says now.
+
+    `drops` is the per-socket overflow counter from skmem.  The machine-wide
+    Udp:RcvbufErrors in resource_system.csv cannot say *which* socket lost a
+    datagram; this can, so a non-zero count is attributable.
     """
     text = _run(["ss", "-ulmnp"])
     if text is None:
@@ -662,15 +666,19 @@ def socket_buffers(pid):
         if s.startswith("skmem:"):
             if want in line or (",%d," % pid) in line:
                 fields = {}
+                # skmem:(r0,rb212992,t0,tb212992,f0,w0,o0,bl0,d0) -- match the
+                # longest key first so "rb"/"tb" are not eaten by "r"/"t".
                 for part in s[len("skmem:("):].rstrip(")").split(","):
-                    for key in ("rb", "tb"):
+                    for key in ("rb", "tb", "d"):
                         if part.startswith(key):
                             fields[key] = int(part[len(key):])
+                            break
                 # ss columns: State Recv-Q Send-Q Local:Port Peer:Port Process
                 cols = line.split()
                 socks.append({"local": cols[3] if len(cols) > 3 else "?",
                               "rcv_buf": fields.get("rb"),
-                              "snd_buf": fields.get("tb")})
+                              "snd_buf": fields.get("tb"),
+                              "drops": fields.get("d")})
         else:
             line = raw
     return socks
@@ -904,6 +912,16 @@ def collect_environment(processes, interface, message_bytes=None, qos=None):
         if message_bytes:
             env["message_bytes"] = message_bytes
             env["message_per_send_buffer"] = message_bytes / float(min(snd))
+    # Same ratio for the shared-memory segment.  When publisher and subscriber
+    # are on one host the point cloud never touches UDP, so this -- not the
+    # send buffer -- is the pipe the message actually has to fit through.
+    seg = [v for k, v in (env["dds_shm_segments"] or {}).items()
+           if not k.startswith("fastrtps_port")]
+    if seg:
+        env["dds_shm_segment_bytes"] = max(seg)
+        if message_bytes:
+            env["message_bytes"] = message_bytes
+            env["message_per_shm_segment"] = message_bytes / float(max(seg))
     return env
 
 
@@ -2270,6 +2288,13 @@ def print_report(summary):
                                          env.get("message_bytes"), ratio))
         elif env.get("min_send_buffer_bytes") is not None:
             print("  publisher send buffer  : %s B" % env["min_send_buffer_bytes"])
+        shm_ratio = env.get("message_per_shm_segment")
+        if shm_ratio is not None:
+            print("  dds shm segment        : %s B for a %s B message (message is "
+                  "%.1fx the segment)" % (env.get("dds_shm_segment_bytes"),
+                                          env.get("message_bytes"), shm_ratio))
+        elif env.get("dds_shm_segment_bytes") is not None:
+            print("  dds shm segment        : %s B" % env["dds_shm_segment_bytes"])
         print("  sensor interface       : %s" % env.get("sensor_interface"))
         print("  driver revision        : %s" % env.get("driver_revision"))
     print("-" * 76, flush=True)
