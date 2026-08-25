@@ -92,6 +92,7 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 |---|---|---|
 | `--duration` | (必須) | 計測時間（秒） |
 | `--aggregation-frame-count` | `1` | `1`(≈20Hz) か `2`(≈10Hz) |
+| `--nominal-hz` | `20 / aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
 | `--ros-version` | `$ROS_VERSION` | `1` か `2` |
 | `--rate-method` | `probe` | `probe`=C++ 計測ノード（実機は必須）/ `inproc`=Python 購読（低レートのドライラン専用） |
 | `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |

@@ -2437,6 +2437,13 @@ def parse_args():
                    help="Measurement duration in seconds")
     p.add_argument("--aggregation-frame-count", type=int, choices=[1, 2], default=1,
                    help="1 (~20Hz) or 2 (~10Hz). ROS1 maps this to aggregate_frames.")
+    p.add_argument("--nominal-hz", type=float, default=None,
+                   help="Expected publish rate in Hz. Defaults to 20 / "
+                        "aggregation_frame_count, which assumes the sensor "
+                        "emits 20 frames/s. Set this when the driver changes "
+                        "the frame rate itself -- a single-parity aggregation "
+                        "mode, for instance, halves it without changing the "
+                        "points per frame.")
     p.add_argument("--ros-version", type=int, choices=[1, 2],
                    default=(int(default_version) if default_version in ("1", "2") else None),
                    help="ROS version (default: $ROS_VERSION)")
@@ -2541,7 +2548,11 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    nominal_hz = 20.0 / args.aggregation_frame_count
+    if args.nominal_hz is not None and args.nominal_hz <= 0:
+        print("--nominal-hz must be positive", file=sys.stderr)
+        return 2
+    nominal_hz = (args.nominal_hz if args.nominal_hz is not None
+                  else 20.0 / args.aggregation_frame_count)
     backend = make_backend(args)
 
     popen = None
