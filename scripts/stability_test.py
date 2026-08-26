@@ -1142,15 +1142,21 @@ class Ros1Backend(RosBackend):
         raise RuntimeError("failed to start roscore")
 
     # Point-inclusion keys the ROS1 driver understands (publisher_nodelet.cpp).
+    # ambient and second return stay false on purpose: unlike the other
+    # include_* keys, which only filter points the SDK already produced,
+    # these two flip SDK control flags (PARSE_AMBIENT instead of PARSE_TOF,
+    # RETURN_BOTH instead of RETURN_FIRST), changing what the SDK emits.
+    # The test measures the driver on the standard TOF/first-return path,
+    # which is also what --expected-points is the nominal for.
     ALL_POINTS_OVERRIDES = {
         "include_saturated_points": "true",
-        "include_second_return_points": "true",
+        "include_second_return_points": "false",
         "include_invalid_points": "true",
         "include_noise_points": "true",
         "include_blocked_points": "true",
         "include_retro_points": "true",
         "include_retro_weak_points": "true",
-        "include_ambient_points": "true",
+        "include_ambient_points": "false",
         "min_altitude": "-90.0",
         "max_altitude": "90.0",
         "min_azimuth": "-90.0",
@@ -1166,8 +1172,8 @@ class Ros1Backend(RosBackend):
                 "true" if self.args.aggregation_frame_count == 2 else "false",
         }
         if not self.args.no_all_points:
-            # Pass every point through so per-frame width can be checked
-            # against the SDK nominal (fixed-length frames).
+            # Pass every TOF/first-return point through so per-frame width
+            # can be checked against the SDK nominal (fixed-length frames).
             overrides.update(self.ALL_POINTS_OVERRIDES)
         lines = _override_yaml_keys(src.read_text().splitlines(), overrides)
         dst.write_text("\n".join(lines) + "\n")
@@ -1297,16 +1303,23 @@ class Ros2Backend(RosBackend):
     def default_config(self):
         return REPO_ROOT / "ros2" / "parameters.yaml"
 
-    # Point-inclusion keys the ROS2 driver declares (cepton_publisher.cpp;
-    # note there is no retro_weak key in ROS2). Doubles must stay doubles.
+    # Point-inclusion keys the ROS2 driver declares (cepton_publisher.cpp).
+    # Doubles must stay doubles.
+    # ambient and second return stay false on purpose: unlike the other
+    # include_* keys, which only filter points the SDK already produced,
+    # these two flip SDK control flags (PARSE_AMBIENT instead of PARSE_TOF,
+    # RETURN_BOTH instead of RETURN_FIRST), changing what the SDK emits.
+    # The test measures the driver on the standard TOF/first-return path,
+    # which is also what --expected-points is the nominal for.
     ALL_POINTS_OVERRIDES = {
         "include_saturated_points": "true",
-        "include_second_return_points": "true",
+        "include_second_return_points": "false",
         "include_invalid_points": "true",
         "include_noise_points": "true",
         "include_blocked_points": "true",
         "include_retro_points": "true",
-        "include_ambient_points": "true",
+        "include_retro_weak_points": "true",
+        "include_ambient_points": "false",
         "min_altitude": "-90.0",
         "max_altitude": "90.0",
         "min_azimuth": "-90.0",
@@ -2492,9 +2505,13 @@ def parse_args():
                         "(dry runs). (default: 349960)")
     p.add_argument("--no-all-points", action="store_true",
                    help="Do not override the driver config to pass all points "
-                        "through. Default is to enable all include_* flags and "
-                        "open the distance/angle filters so the per-frame "
-                        "width can be checked against the SDK nominal.")
+                        "through. Default is to enable every include_* flag "
+                        "except ambient and second return (those two change "
+                        "what the SDK emits, not just what is filtered) and to "
+                        "open the distance/angle filters, so the per-frame "
+                        "width can be checked against the SDK nominal. With "
+                        "this flag the config is used as-is; a config that "
+                        "filters points needs --expected-points 0 as well.")
     p.add_argument("--warmup", type=float, default=5.0,
                    help="Seconds excluded from evaluation after start (default: 5.0)")
     p.add_argument("--drop-factor", type=float, default=1.5,
