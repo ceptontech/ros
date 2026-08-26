@@ -12,8 +12,8 @@
     cepx_output_type: BOTH
     pcl2_output_type: BOTH
     include_saturated_points: true
-    include_second_return_points: false
-    include_invalid_points: false
+    include_second_return_points: false # set to false if second return mode is not enabled from firmware
+    include_invalid_points: true
     include_noise_points: true
     include_blocked_points: true
     include_retro_points: true
