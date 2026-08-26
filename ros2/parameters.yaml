@@ -17,7 +17,7 @@
     include_blocked_points: true
     include_retro_points: true
     include_retro_weak_points: true
-    include_ambient_points: true # set to false if ambient mode is not enabled from firmware
+    include_ambient_points: false # set to false if ambient mode is not enabled from firmware
     min_altitude: -90.0
     max_altitude: 90.0
     min_azimuth: -90.0
@@ -29,4 +29,4 @@
     # If uncommented, this parameter must not be an empty list.
     # rclcpp cannot load empty lists properly, and this will throw an exception. https://github.com/ros2/rclcpp/issues/1955
     # Commenting this out means that sensors will be discovered lazily, as they come online.
-    expected_sensor_ips: ["192.168.32.32"]
+    #expected_sensor_ips: ["192.168.32.32"]
