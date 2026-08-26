@@ -92,6 +92,7 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 |---|---|---|
 | `--duration` | (必須) | 計測時間（秒） |
 | `--aggregation-frame-count` | `1` | `1`(≈20Hz) か `2`(≈10Hz) |
+| `--nominal-hz` | `20 / aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
 | `--ros-version` | `$ROS_VERSION` | `1` か `2` |
 | `--rate-method` | `probe` | `probe`=C++ 計測ノード（実機は必須）/ `inproc`=Python 購読（低レートのドライラン専用） |
 | `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |
@@ -109,7 +110,10 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--drop-factor` | `1.5` | 間隔 > `factor × 公称周期` をドロップ判定 |
 | `--mem-growth-threshold` | `1.0` | RSS 増加の不合格閾値（MB/min） |
 | `--cpu-growth-threshold` | `5.0` | CPU 増加の不合格閾値（%/min） |
-| `--resource-interval` | `1.0` | CPU/メモリのサンプリング間隔（秒） |
+| `--resource-interval` | `1.0` | Publisher の CPU/メモリ・プロセス内部のサンプリング間隔（秒） |
+| `--system-interval` | `5.0` | マシン全体（CPU/UDP/NIC/上位プロセス）のサンプリング間隔（秒）。`/proc` 全走査を伴うため粗め |
+| `--sensor-interface` | 自動検出 | センサデータが届く NIC 名。`environment.json` の記録と NIC 統計に使用 |
+| `--perf-clock` | (off) | `perf stat` で Publisher の実効クロックを計測。**既定で無効**（下記参照） |
 | `--startup-timeout` | `30.0` | 台ごとトピック検出の待機上限（秒） |
 | `--config-path` | 版ごとの既定 YAML | 元にするパラメータファイル |
 | `--output-dir` | `scripts/stability_output/<日時>` | 出力先 |
@@ -148,6 +152,49 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
 成立するかは初回実測で確認してください。一定のオフセットが出る場合は、その実測定数を
 `--expected-points` に指定して運用します。
 
+### 環境スナップショット `environment.json`
+
+Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが
+結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
+
+- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
+  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
+- `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
+- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
+  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
+  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
+  `d` は後述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
+- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
+  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
+- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
+  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
+- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
+  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
+  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
+  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
+- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
+- `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
+  **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
+- `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
+  `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
+- `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
+- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
+  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
+  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
+  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
+  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
+  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
+  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
+  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
+  `<segment_size>` で変更する
+- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
+
+`udp_rcvbuf_err` と `nic_drop` は記録のみで、合否には含めていません（妥当な閾値をまだ
+持たないため）。レポートには情報行として増分が出ます。`udp_rcvbuf_err` は
+`/proc/net/snmp` の `Udp: RcvbufErrors`、すなわち**ホスト全体・全 UDP ソケットの合計（IPv4 のみ）**
+である点に注意してください。特定のソケットに帰属させたいときは `environment.json` の
+`sockets[].drops` を使います。
+
 ### レート/ドロップの 2 つの基準（arrival と stamp）
 
 周期とドロップは **到着(arrival)** と **センサ時刻(stamp)** の両方で常に算出し併記します
@@ -170,6 +217,34 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
   ※ ROS1 ドライバは `temperature` を設定しないため ROS1 では常に 0
 - `resource.csv` … Publisher の RSS(MB) / CPU(%) 時系列
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
+- `environment.json` … **計測時のマシン設定スナップショット**（後述）
+- `resource_system.csv` … マシン全体の時系列。`cpu_percent` / `cpu_max_core_pct` / `load1` /
+  `temp_c` / `net_rx_softirq_s` / `udp_in_s` / `udp_rcvbuf_err_s` / `nic_rx_mbps` /
+  `nic_drop_s` / `freq_{min,median,max}_mhz` / `top_processes`（各窓で CPU を最も食った
+  プロセス上位 3 つ）。周波数は**マシン全体の文脈**で、どのコアが被試験プロセスを
+  実行したかは主張しない。`cpu_percent` は **1 コア = 100%** 表記（20 コア全負荷なら 2000%）で、
+  `resource.csv` の Publisher CPU と同じ尺度なので直接読み比べられる。
+  `cpu_max_core_pct` だけは「1 コアの使用率」なので 0〜100
+- `resource_process.csv` … Publisher プロセスの内部。`threads` / `vmrss_mb` / `vmsize_mb` /
+  `vmas` / `minflt_s` / `hot_thread_cpu_pct`（最も CPU を使ったスレッドの利用率）/
+  `hot_thread_last_cpu`（読み取り時点で最後に載っていたコア。**滞在時間ではない**）
+- `publisher_clock.csv` … `--perf-clock` 指定時のみ。`effective_ghz` = `cycles / task-clock` で、
+  **プロセスに帰属した実効クロック**。スレッドがコアを渡り歩いても正しく積算される。
+  `perf_event_paranoid` が高いと取得できず、その理由が `summary.json` に記録される。
+
+  **既定で無効な理由**: 本スクリプトの計測はすべて `/proc`・`/sys` の読み取りで被試験プロセスに
+  触れませんが、`perf stat -p` だけは例外で per-task イベントを対象プロセスに取り付けます。
+  サンプリング割り込みは発生しない（カウンティングモード）ものの、対象のコンテキストスイッチ毎に
+  カウンタの退避/復元が入り、さらに**対象が生成する全スレッドにイベントが複製されます**。
+  ROS2 ドライバは publish 毎にスレッドを生成する（毎秒 10 個）ため、この点で不利な形です。
+  オーバーヘッドは 1% を大きく下回ると見積もられますが未実測であり、publish が 1 メッセージ
+  あたりの予算ぎりぎりで動いている状況では計測行為が現象を変え得ます。必要なときだけ
+  明示的に有効化してください。被試験プロセスに一切触れない代替として `turbostat` の
+  per-core `Bzy_MHz`（要 root）があり、マシンがほぼアイドルで Publisher が支配的な負荷なら
+  良い近似になります
+- `system.png` … マシン CPU・ホットコア周波数・温度・NIC 受信の経時変化。
+  点群が束になって届いた区間を網掛けで重ねてあり、配信が乱れている間もマシン側が
+  平坦かどうかを一目で確認できる
 - `framerate.png` … 配信レートの経時変化。**窓平均が主系列（実線）、瞬時 1/dt は淡色**。
   許容範囲の上下限を点線で表示（スパイクは上限でクリップし件数注記）
 - `info_framerate.png` … SensorInfo レートの経時変化（台ごと）。framerate.png と同じ体裁で
@@ -191,7 +266,9 @@ VistaUltra-N を使用する場合、生 UDP で 1 台あたり約 400 Mbps × 4
 - カーネル**受信**バッファの拡大（`sysctl net.core.rmem_max` / `rmem_default` など）
 - カーネル**送信**バッファの拡大（`sysctl net.core.wmem_max` / `wmem_default`、ROS1 の TCPROS
   では `net.ipv4.tcp_wmem` の最大値も）。**Publisher（送信側）自身のソケットに効く**ため、
-  受信側だけを拡大しても不十分（下記参照）
+  受信側だけを拡大しても不十分（下記参照）。ROS2/Fast DDS でも同様で、メッセージが共有メモリ
+  セグメントに収まらず UDP にフォールバックする場合に効いてくる。実際に反映されたかは
+  `environment.json` の `publisher_sockets` と `message_per_send_buffer` で確認できる
 - 負荷が高すぎる場合はドライバをメッセージ縮小ビルドして 1 フレームのデータ量を減らせます
   （ROS1/ROS2 とも `catkin_make` / `colcon build` 時に `-DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF`）。
   ※点数照合（width）はフィールド数に依存しないため縮小ビルドでも成立します
