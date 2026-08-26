@@ -14,6 +14,7 @@
     include_saturated_points: true
     include_second_return_points: false
     include_invalid_points: false
+    include_noise_points: true
     include_blocked_points: true
     include_retro_points: true
     include_retro_weak_points: true
