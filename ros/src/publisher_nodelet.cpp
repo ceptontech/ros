@@ -184,27 +184,27 @@ void PublisherNodelet::onInit()
 
     // keep frame low_snr/parity/boundary as internal for now
 
-    private_node_handle_.param("include_second_return_points", include, true);
+    private_node_handle_.param("include_second_return_points", include, false);
     include_flag_ |= (include ? CEPTON_POINT_SECOND_RETURN : 0);
     ROS_INFO("Including Second Return  points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_invalid_points", include, false);
+    private_node_handle_.param("include_invalid_points", include, true);
     include_flag_ |= (include ? CEPTON_POINT_NO_RETURN : 0);
     ROS_INFO("Including Invalid (No Return) points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_noise_points", include, false);
+    private_node_handle_.param("include_noise_points", include, true);
     include_flag_ |= (include ? CEPTON_POINT_NOISE : 0);
     ROS_INFO("Including Noise points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_blocked_points", include, false);
+    private_node_handle_.param("include_blocked_points", include, true);
     include_flag_ |= (include ? CEPTON_POINT_BLOCKED : 0);
     ROS_INFO("Including Blocked points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_retro_points", include, false);
+    private_node_handle_.param("include_retro_points", include, true);
     include_flag_ |= (include ? CEPTON_POINT_RETRO : 0);
     ROS_INFO("Including Retro points: %s\n", include ? "true" : "false");
 
-    private_node_handle_.param("include_retro_weak_points", include, false);
+    private_node_handle_.param("include_retro_weak_points", include, true);
     include_flag_ |= (include ? CEPTON_POINT_RETRO_WEAK : 0);
     ROS_INFO("Including Retro Weak points: %s\n", include ? "true" : "false");
 

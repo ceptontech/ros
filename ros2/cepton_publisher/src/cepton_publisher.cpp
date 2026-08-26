@@ -452,8 +452,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
 
   declare_parameter("include_saturated_points", true);
   declare_parameter("include_second_return_points", false);
-  declare_parameter("include_invalid_points", false);
-  declare_parameter("include_noise_points", false);
+  declare_parameter("include_invalid_points", true);
+  declare_parameter("include_noise_points", true);
   declare_parameter("include_blocked_points", true);
   declare_parameter("include_retro_points", true);
   declare_parameter("include_retro_weak_points", true);
