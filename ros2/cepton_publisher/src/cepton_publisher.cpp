@@ -194,7 +194,7 @@ void CeptonPublisher::publish_points(
     // nanosec is the timestamp portion that is truncated from the sec.
     // portion.
     cloud.header.stamp.nanosec = (start_timestamp % 1'000'000) * 1'000;
-    cloud.header.frame_id = "cepton3";
+    cloud.header.frame_id = "cepton3_" + std::to_string(handle);
 
     cloud_modifier.setPointCloud2Fields(
       n_fields,
