@@ -1,0 +1,20 @@
+/cepton_publisher:
+  ros__parameters:
+    capture_file: "scripts/ros_tesuto_sutanda-do4.pcap"
+    capture_loop: true
+    pcl2_output_type: "BOTH"
+    include_saturated_points: true
+    include_second_return_points: false
+    include_invalid_points: true
+    include_noise_points: true
+    include_blocked_points: true
+    include_retro_points: false
+    include_retro_weak_points: true
+    include_ambient_points: false
+    min_altitude: -90.0
+    max_altitude: 90.0
+    min_azimuth: -90.0
+    max_azimuth: 90.0
+    min_distance: 0.0
+    max_distance: 1000.0
+    aggregation_frame_count: 1
