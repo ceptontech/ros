@@ -1,7 +1,6 @@
 name: flag-test
 
 on:
-  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -10,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build docker image
         run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
@@ -19,12 +18,16 @@ jobs:
         run: |
           docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA bash -euo pipefail -c '
           cd /app
+          set +u
           source /opt/ros/jazzy/setup.bash
+          set -u
 
           colcon build --packages-select cepton_messages cepton_publisher \
             --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
 
+          set +u
           source install/setup.bash
+          set -u
 
           count_points() {
             local params_file="$1"
