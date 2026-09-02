@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Build docker image
         run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
