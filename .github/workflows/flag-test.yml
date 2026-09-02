@@ -33,9 +33,11 @@ jobs:
           count_points() {
             local params_file="$1"
             local domain_id="$2"
+            local result_file="$3"
             local output
 
             export ROS_DOMAIN_ID="$domain_id"
+            echo "Counting points with $params_file on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 
             ros2 run cepton_publisher cepton_publisher_node \
               --ros-args --params-file "$params_file" > /tmp/cepton_flag_test.log 2>&1 &
@@ -57,15 +59,21 @@ jobs:
               return "$rc"
             fi
 
-            echo "$output" >&2
-            echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}"
+            echo "$output"
+            echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}" > "$result_file"
           }
 
-          baseline=$(count_points scripts/flag_test/params/baseline.yaml 201)
-          invalid=$(count_points scripts/flag_test/params/exclude_invalid.yaml 202)
-          noise=$(count_points scripts/flag_test/params/exclude_noise.yaml 203)
-          retro=$(count_points scripts/flag_test/params/exclude_retro.yaml 204)
-          retro_weak=$(count_points scripts/flag_test/params/exclude_retro_weak.yaml 205)
+          count_points scripts/flag_test/params/baseline.yaml 1 /tmp/baseline.count
+          count_points scripts/flag_test/params/exclude_invalid.yaml 2 /tmp/invalid.count
+          count_points scripts/flag_test/params/exclude_noise.yaml 3 /tmp/noise.count
+          count_points scripts/flag_test/params/exclude_retro.yaml 4 /tmp/retro.count
+          count_points scripts/flag_test/params/exclude_retro_weak.yaml 5 /tmp/retro_weak.count
+
+          baseline=$(cat /tmp/baseline.count)
+          invalid=$(cat /tmp/invalid.count)
+          noise=$(cat /tmp/noise.count)
+          retro=$(cat /tmp/retro.count)
+          retro_weak=$(cat /tmp/retro_weak.count)
 
           invalid_delta=$((baseline - invalid))
           noise_delta=$((baseline - noise))
