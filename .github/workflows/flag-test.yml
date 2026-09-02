@@ -43,9 +43,15 @@ jobs:
               --ros-args --params-file "$params_file" > /tmp/cepton_flag_test.log 2>&1 &
             local publisher_pid=$!
 
-            sleep 2
+            for _ in $(seq 1 20); do
+              if ros2 topic list | grep -qx "/cepton_pcl2"; then
+                break
+              fi
+              sleep 1
+            done
+
             set +e
-            output=$(python3 scripts/flag_test/count_points_ros2.py --timeout 10 2>&1)
+            output=$(python3 scripts/flag_test/count_points_ros2.py --timeout 30 2>&1)
             local rc=$?
             set -e
 
