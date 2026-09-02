@@ -1,0 +1,80 @@
+name: flag-test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  flag-filter-counts:
+    name: Check flag filter point counts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build docker image
+        run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
+
+      - name: Run flag filter test
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA bash -euo pipefail -c '
+          cd /app
+          source /opt/ros/jazzy/setup.bash
+
+          colcon build --packages-select cepton_messages cepton_publisher \
+            --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
+
+          source install/setup.bash
+
+          count_points() {
+            local params_file="$1"
+            local domain_id="$2"
+            local output
+
+            export ROS_DOMAIN_ID="$domain_id"
+
+            ros2 run cepton_publisher cepton_publisher_node \
+              --ros-args --params-file "$params_file" > /tmp/cepton_flag_test.log 2>&1 &
+            local publisher_pid=$!
+
+            sleep 2
+            set +e
+            output=$(python3 scripts/flag_test/count_points_ros2.py --timeout 10 2>&1)
+            local rc=$?
+            set -e
+
+            kill "$publisher_pid" 2>/dev/null || true
+            wait "$publisher_pid" 2>/dev/null || true
+
+            if [ "$rc" -ne 0 ]; then
+              echo "$output"
+              echo "--- publisher log ---"
+              tail -80 /tmp/cepton_flag_test.log
+              return "$rc"
+            fi
+
+            echo "$output" >&2
+            echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}"
+          }
+
+          baseline=$(count_points scripts/flag_test/params/baseline.yaml 201)
+          invalid=$(count_points scripts/flag_test/params/exclude_invalid.yaml 202)
+          noise=$(count_points scripts/flag_test/params/exclude_noise.yaml 203)
+          retro=$(count_points scripts/flag_test/params/exclude_retro.yaml 204)
+          retro_weak=$(count_points scripts/flag_test/params/exclude_retro_weak.yaml 205)
+
+          invalid_delta=$((baseline - invalid))
+          noise_delta=$((baseline - noise))
+          retro_delta=$((baseline - retro))
+          retro_weak_delta=$((baseline - retro_weak))
+
+          echo "baseline=$baseline"
+          echo "exclude_invalid=$invalid delta=$invalid_delta expected=1"
+          echo "exclude_noise=$noise delta=$noise_delta expected=2"
+          echo "exclude_retro=$retro delta=$retro_delta expected=4"
+          echo "exclude_retro_weak=$retro_weak delta=$retro_weak_delta expected=8"
+
+          test "$invalid_delta" -eq 1
+          test "$noise_delta" -eq 2
+          test "$retro_delta" -eq 4
+          test "$retro_weak_delta" -eq 8
+          '
