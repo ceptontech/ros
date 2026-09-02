@@ -20,17 +20,23 @@ jobs:
           docker run --rm --network host --ipc host \
             -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA bash -euo pipefail -c '
           cd /app
+          mkdir -p /root/Documents/Cepton
+          cp scripts/flag_test/calibration/calibration_3276808.bin /root/Documents/Cepton/
+
           export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
           export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
           set +u
           source /opt/ros/jazzy/setup.bash
           set -u
 
-          colcon build --packages-select cepton_messages cepton_publisher \
+          colcon --log-base /tmp/cepton_log build \
+            --packages-select cepton_messages cepton_publisher \
+            --build-base /tmp/cepton_build \
+            --install-base /tmp/cepton_install \
             --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
 
           set +u
-          source install/setup.bash
+          source /tmp/cepton_install/setup.bash
           set -u
 
           count_points() {
@@ -42,23 +48,21 @@ jobs:
             export ROS_DOMAIN_ID="$domain_id"
             echo "Counting points with $params_file on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 
+            python3 scripts/flag_test/count_points_ros2.py \
+              --timeout 120 \
+              --target-stamp 80.557132000 \
+              > /tmp/cepton_count_points.out 2>&1 &
+            local subscriber_pid=$!
+            sleep 1
+
             ros2 run cepton_publisher cepton_publisher_node \
               --ros-args --params-file "$params_file" > /tmp/cepton_flag_test.log 2>&1 &
             local publisher_pid=$!
 
-            for _ in $(seq 1 120); do
-              if ros2 topic list | grep -qx "/cepton_pcl2"; then
-                break
-              fi
-              sleep 1
-            done
-            ros2 node list
-            ros2 topic list
-            ros2 topic info /cepton_pcl2 || true
-
             set +e
-            output=$(python3 scripts/flag_test/count_points_ros2.py --timeout 120 2>&1)
+            wait "$subscriber_pid"
             local rc=$?
+            output=$(cat /tmp/cepton_count_points.out)
             set -e
 
             kill "$publisher_pid" 2>/dev/null || true
