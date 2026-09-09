@@ -12,17 +12,17 @@ Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続�
 flowchart TB
     SENSOR["Cepton センサ（台ごと）"] --> PUB["Publisher<br/>(ドライバ/SDK・被試験対象 DUT)"]
 
-    PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN["点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"]
-    PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN["SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"]
+    PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN[/"点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"/]
+    PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN[/"SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"/]
 
     subgraph DP["データプレーン（台ごとに1プロセス・C++）"]
         DPIN --> PR["stability_probe<br/>到着時刻・header.stamp・width を記録"]
-        PR --> CSV["sensor_〈SN〉.csv"]
+        PR --> CSV[("sensor_〈SN〉.csv")]
     end
 
     subgraph CP["コントロールプレーン（Python）"]
         CPIN -- "直接購読<br/>(serial_numberで台ごとに振分け)" --> ST["stability_test.py"]
-        ST --> REPORT["summary.json<br/>framerate.png 等"]
+        ST --> REPORT[("summary.json<br/>framerate.png 等")]
     end
 
     ST -- "起動" --> PUB
@@ -31,7 +31,8 @@ flowchart TB
     ST -. "/proc でCPU・RSSを監視" .-> PR
     CSV -- "計測終了後に読込み評価" --> ST
 ```
-*実線＝データ/制御フロー、点線＝リソース監視。点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
+*四角＝プロセス/実体、平行四辺形＝ROS トピック、円柱＝ファイル。実線＝データ/制御フロー、点線＝リソース監視。
+点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
 
 - **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
   台ごとのトピック（ROS1: `/cepton3/points_sn_<SN>` / ROS2: `/serial_<SN>`）を購読し、
