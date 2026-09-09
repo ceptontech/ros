@@ -71,17 +71,17 @@ ROS1 では内部で `aggregate_frames`（`false`/`true`）に、ROS2 では `ag
 
 ```bash
 # ROS1 環境を source した状態で、1 台・600 秒・count=1（20Hz）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 
 # 続けて count=2（10Hz、期待点数は自動で 2 倍の 699,920 に）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 2
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 2
 
 # 4 台まとめて試験する場合は台数を明示（--expected-sensors の既定は 1）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1 \
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1 \
   --expected-sensors 4
 
 # ROS2 環境を source すれば同じコマンドで ROS2 側を試験（--ros-version は自動）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 ```
 
 既定で**全点設定**（後述）の一時パラメータを自動生成して Publisher を起動します。
@@ -116,7 +116,7 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--perf-clock` | (off) | `perf stat` で Publisher の実効クロックを計測。**既定で無効**（下記参照） |
 | `--startup-timeout` | `30.0` | 台ごとトピック検出の待機上限（秒） |
 | `--config-path` | 版ごとの既定 YAML | 元にするパラメータファイル |
-| `--output-dir` | `scripts/stability_output/<日時>` | 出力先 |
+| `--output-dir` | `scripts/stability_test/stability_output/<日時>` | 出力先 |
 
 ## 評価項目（合否）
 
@@ -316,7 +316,7 @@ SensorInfo は流れないので `--no-info-check` を付けます（付けな�
 # 別ターミナルで roscore を起動後
 rostopic pub -r 20 /cepton3/points_sn_1 sensor_msgs/PointCloud2 '{width: 100, height: 1}'
 # （複数台分はそれぞれ別トピック名で起動）
-python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
+python3 scripts/stability_test/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
   --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --rate-method inproc \
   --no-info-check
 ```
@@ -324,7 +324,7 @@ python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1
 ### ROS2
 ```bash
 ros2 topic pub -r 20 /serial_1 sensor_msgs/msg/PointCloud2 '{width: 100, height: 1}'
-python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
+python3 scripts/stability_test/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
   --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --no-info-check
 ```
 

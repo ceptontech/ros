@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
+REPO_ROOT = SCRIPT_DIR.parent.parent
 
 # Okabe-Ito colorblind-safe categorical palette, used in fixed order per sensor.
 SENSOR_COLORS = [
@@ -2548,7 +2548,7 @@ def parse_args():
     p.add_argument("--config-path", default=None,
                    help="Base params YAML (default: version-specific driver default)")
     p.add_argument("--output-dir", default=None,
-                   help="Output directory (default: scripts/stability_output/<ts>)")
+                   help="Output directory (default: scripts/stability_test/stability_output/<ts>)")
     return p.parse_args()
 
 
