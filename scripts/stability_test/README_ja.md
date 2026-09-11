@@ -38,15 +38,13 @@ flowchart TB
 - **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
   `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
 
-**計測用ノードをC++で作成した理由**：4台同時接続環境では
-トピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。
-C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
+>計測用ノードをC++で作成した理由：4台同時接続環境ではトピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
 
 ## 使用条件
 
 - Ubuntu + ROS 環境
 - C++ プローブのビルド（事前準備の章を参照）
-- `matplotlib`（未インストール時はグラフをスキップし、数値評価は継続）
+- `matplotlib`がインストールされたPython環境（未インストール時はグラフをスキップ、数値評価は実行）
 
 ## 事前準備
 
@@ -86,8 +84,7 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 2
 
 # 4 台まとめて試験する場合は台数を明示（--expected-sensors の既定は 1）
-python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1 \
-  --expected-sensors 4
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1 --expected-sensors 4
 
 # ROS2 環境を source すれば同じコマンドで ROS2 側を試験（--ros-version は自動）
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
@@ -162,8 +159,7 @@ saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 �
 
 ### 環境スナップショット `environment.json`
 
-Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが
-結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
+Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
 
 - `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
   レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
