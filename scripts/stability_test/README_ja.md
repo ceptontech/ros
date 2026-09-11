@@ -75,9 +75,8 @@ source ros2/install/setup.bash       # cepton_publisher をビルドしたワー
 
 ## 使い方
 
-`--aggregation-frame-count` は 1 設定/実行です（`1` ≈ 20Hz, `2` ≈ 10Hz）。
-ROS1 では内部で `aggregate_frames`（`false`/`true`）に、ROS2 では `aggregation_frame_count`
-にマッピングされます。
+1. LiDAR実機を接続し電源を投入
+2. Terminalから次のコマンドを実行
 
 ```bash
 # ROS1 環境を source した状態で、1 台・600 秒・count=1（20Hz）
@@ -94,17 +93,16 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 ```
 
-既定で**全点設定**（後述）の一時パラメータを自動生成して Publisher を起動します。
 
-## 主なオプション
+## 実行時オプション
 
 | オプション | 既定 | 説明 |
 |---|---|---|
 | `--duration` | (必須) | 計測時間（秒） |
 | `--aggregation-frame-count` | `1` | `1`(≈20Hz) か `2`(≈10Hz) |
-| `--nominal-hz` | `20 / aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
-| `--ros-version` | `$ROS_VERSION` | `1` か `2` |
-| `--rate-method` | `probe` | `probe`=C++ 計測ノード（実機は必須）/ `inproc`=Python 購読（低レートのドライラン専用） |
+| `--nominal-hz` | `20 ÷ aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
+| `--ros-version` | `$ROS_VERSION` | `1` か `2`。ROS環境を source　してあれば不要 |
+| `--rate-method` | `probe` | `probe`=C++ 計測ノード/ `inproc`=Python 購読（低レートのドライラン専用） |
 | `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |
 | `--inst-tolerance` | `0.1` | **瞬時** 1/dt の許容 Hz 誤差（仕様どおり。20Hz では ±0.25ms の間隔予算） |
 | `--rate-tolerance` | `0.1` | **窓平均**レートの許容 Hz 誤差 |
