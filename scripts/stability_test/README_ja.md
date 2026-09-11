@@ -73,8 +73,6 @@ source <colcon_ws>/install/setup.bash
 source ros2/install/setup.bash       # cepton_publisher をビルドしたワークスペース
 ```
 
-いずれも `ROS_VERSION` が設定されるので、`--ros-version` は省略できます。
-
 ## 使い方
 
 `--aggregation-frame-count` は 1 設定/実行です（`1` ≈ 20Hz, `2` ≈ 10Hz）。
