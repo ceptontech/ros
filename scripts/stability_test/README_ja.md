@@ -35,18 +35,12 @@ flowchart TB
 点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
 
 - **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
-  台ごとのトピック（ROS1: `/cepton3/points_sn_<SN>` / ROS2: `/serial_<SN>`）を購読し、
-  到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけの ~100 行のノード。
-  ドライバ非改変・Cepton SDK 非依存。
-- **コントロールプレーン = Python (`stability_test.py`)**。Publisher/プローブの起動と
-  `/proc` によるリソース監視、CSV の評価、グラフ・レポート生成。加えて **SensorInfo**
-  （ROS1: `/cepton3/sensor_information` / ROS2: `/cepton_info`）はこの Python プロセスから
-  直接購読します。1 メッセージ数百バイト・公称 2Hz と点群より 4 桁以上軽く GIL が
-  ボトルネックにならないため、C++ プローブを介する必要がありません（全台分が 1 本の
-  トピックに流れるので、メッセージ内の `serial_number` で台ごとに振り分けます）。
+  センサ1台ごとに起動。点群トピックを購読し、到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
+- **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
+  `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
 
-Python 購読（`--rate-method inproc`）を実機で使ってはいけない理由：全点設定では
-トピック実流量が **349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）** に達し、
+Python 購読（`--rate-method inproc`）を実機で使ってはいけない理由：4台同時接続環境では
+トピックのデータレートが **349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）** に達し、
 rospy/rclpy は全バイトが GIL 配下を通るため（実効 ~100–200 MB/s）追従できません。
 さらに購読詰まりの逆圧で **Publisher の送信キュー（queue_size=50 × 4 topic × ~11 MB ≈ 2.2 GB）
 が滞留し、メモリ評価まで汚染**されます（実測：Python 購読の 1 時間ランで RSS 2.5 GB。
