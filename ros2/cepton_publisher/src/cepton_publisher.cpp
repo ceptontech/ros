@@ -309,7 +309,7 @@ void CeptonPublisher::publish_points(
       z = tz;
     }
 
-    const float distance_squared = x * x + y * y + z * z;
+    const bool is_no_return = (p0.flags & CEPTON_POINT_NO_RETURN) != 0;
 
     // Filter out points that are labelled ambient but have invalid
     // distance until point flag definitions are finalized (> 500m for
@@ -319,16 +319,28 @@ void CeptonPublisher::publish_points(
     //   continue;
     // }
 
-    const float image_x = y / x;  // horizontal tangent
-    const float image_z = z / x;  // vertical tangent
+    float image_x = 0.0f;  // horizontal tangent
+    float image_z = 0.0f;  // vertical tangent
 
-    // Filter if the point is outside of the FOV
-    if (
-      image_x < min_image_x_ || image_x > max_image_x_ || image_z < min_image_z_ ||
-      image_z > max_image_z_ || distance_squared < min_distance_squared ||
-      distance_squared > max_distance_squared) {
-      ++skipped;
-      continue;
+    if (is_no_return) {
+      // Preserve invalid/no-return points for fixed-size frames, but do not
+      // expose SDK/firmware invalid-distance sentinels as far-away points.
+      x = 0.0f;
+      y = 0.0f;
+      z = 0.0f;
+    } else {
+      const float distance_squared = x * x + y * y + z * z;
+      image_x = y / x;
+      image_z = z / x;
+
+      // Filter if the point is outside of the FOV
+      if (
+        image_x < min_image_x_ || image_x > max_image_x_ || image_z < min_image_z_ ||
+        image_z > max_image_z_ || distance_squared < min_distance_squared ||
+        distance_squared > max_distance_squared) {
+        ++skipped;
+        continue;
+      }
     }
 
     // x value
@@ -344,7 +356,7 @@ void CeptonPublisher::publish_points(
     ++z_iter;
 
     // intensity
-    *intensity_iter = p0.reflectivity * 0.01;
+    *intensity_iter = is_no_return ? 0.0f : p0.reflectivity * 0.01f;
     ++intensity_iter;
 
 #ifdef WITH_TS_CH_F
@@ -368,10 +380,7 @@ void CeptonPublisher::publish_points(
 #ifdef WITH_POLAR
     const double azimuth_rad = atan(image_x);
     const double elevation_rad = atan2(image_z, sqrt(image_x * image_x + 1));
-
-    // If this point is a no-return, set the distance to 0
-    bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
-    float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
+    const float range_meas = is_no_return ? 0.0f : sqrt(x * x + y * y + z * z);
 
     // azimuth
     *azim_iter = azimuth_rad;
