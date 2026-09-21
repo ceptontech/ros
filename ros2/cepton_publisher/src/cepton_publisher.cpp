@@ -330,6 +330,10 @@ void CeptonPublisher::publish_points(
       z = 0.0f;
     } else {
       const float distance_squared = x * x + y * y + z * z;
+      if (x == 0.0f) {
+        ++skipped;
+        continue;
+      }
       image_x = y / x;
       image_z = z / x;
 

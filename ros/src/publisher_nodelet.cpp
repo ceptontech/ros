@@ -428,28 +428,46 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
       z = tz;
     }
 
-    const float distance_squared = x * x + y * y + z * z;
+    const bool is_no_return = (p.flags & CEPTON_POINT_NO_RETURN) != 0;
 
     // This filter is disabled because this is not used
     // if (distance_squared >= 500 * 500) continue;
 
-    const float tan_yx = y / x;
-    const float tan_zx = z / x;
+    float tan_yx = 0.0f;
+    float tan_zx = 0.0f;
 
-    if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z || tan_zx > max_image_z ||
-        distance_squared < min_distance_squared || distance_squared > max_distance_squared)
-      continue;
+    if (is_no_return)
+    {
+      // Preserve invalid/no-return points for fixed-size frames, but do not
+      // expose SDK/firmware invalid-distance sentinels as far-away points.
+      x = 0.0f;
+      y = 0.0f;
+      z = 0.0f;
+    }
+    else
+    {
+      const float distance_squared = x * x + y * y + z * z;
+      if (x == 0.0f)
+        continue;
+
+      tan_yx = y / x;
+      tan_zx = z / x;
+
+      if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z || tan_zx > max_image_z ||
+          distance_squared < min_distance_squared || distance_squared > max_distance_squared)
+        continue;
+    }
 
     cp.x = x;
     cp.y = y;
     cp.z = z;
-    cp.intensity = p.reflectivity * 0.01;
+    cp.intensity = is_no_return ? 0.0f : p.reflectivity * 0.01f;
 
 #ifdef WITH_TS_CH_F
     cp.relative_timestamp = p.relative_timestamp;
     cp.channel_id = p.channel_id;
     cp.flags = p.flags;
-    cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
+    cp.valid = !is_no_return;
 #endif
 #ifdef WITH_POLAR
     const double azimuth_rad = atan(tan_yx);
