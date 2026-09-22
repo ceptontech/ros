@@ -26,8 +26,25 @@
     max_distance: 1000.0
     min_distance: 0.0
     aggregation_frame_count: 1 # 1 disables aggregation. Use 2-255 to aggregate frames.
+    qos_reliability: default # default: point clouds use best_effort, info/status use reliable. Other values: reliable, best_effort
+    qos_durability: volatile # volatile or transient_local
+    qos_history: keep_last # keep_last or keep_all
+    qos_points_depth: 50
+    qos_info_depth: 10
+    qos_status_depth: 5
 
     # If uncommented, this parameter must not be an empty list.
     # rclcpp cannot load empty lists properly, and this will throw an exception. https://github.com/ros2/rclcpp/issues/1955
     # Commenting this out means that sensors will be discovered lazily, as they come online.
     #expected_sensor_ips: ["192.168.32.32"]
+
+/cepton_subscriber:
+  ros__parameters:
+    subscribe_pcl2: true
+    subscribe_cepton_info: true
+    export_to_csv: false
+    qos_reliability: default # default: point clouds use best_effort, info uses reliable. Other values: reliable, best_effort
+    qos_durability: volatile # volatile or transient_local
+    qos_history: keep_last # keep_last or keep_all
+    qos_points_depth: 10
+    qos_info_depth: 10

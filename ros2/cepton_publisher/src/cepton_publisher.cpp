@@ -39,6 +39,54 @@ const float SDK_UNIT_TO_METERS = 1.0 / 65536.0;
 
 inline double degrees_to_radians(double t) { return t * M_PI / 180.0; }
 
+rclcpp::QoS make_qos(
+  rclcpp::Node* node, const std::string& topic_kind, int default_depth, bool sensor_data_default)
+{
+  auto depth = default_depth;
+  const auto depth_param = node->get_parameter("qos_" + topic_kind + "_depth");
+  if (depth_param.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
+    depth = static_cast<int>(depth_param.as_int());
+  }
+
+  auto history = node->get_parameter("qos_history").as_string();
+  auto reliability = node->get_parameter("qos_reliability").as_string();
+  auto durability = node->get_parameter("qos_durability").as_string();
+
+  if (history != "keep_all" && depth < 1) {
+    RCLCPP_WARN(
+      node->get_logger(), "Invalid QoS depth %d for %s, using %d", depth, topic_kind.c_str(),
+      default_depth);
+    depth = default_depth;
+  }
+
+  rclcpp::QoS qos = history == "keep_all" ? rclcpp::QoS(rclcpp::KeepAll())
+                                           : rclcpp::QoS(rclcpp::KeepLast(depth));
+
+  if (sensor_data_default && reliability == "default") {
+    qos.best_effort();
+  } else if (reliability == "best_effort") {
+    qos.best_effort();
+  } else if (reliability == "reliable" || reliability == "default") {
+    qos.reliable();
+  } else {
+    RCLCPP_WARN(
+      node->get_logger(), "Unknown qos_reliability '%s', using reliable", reliability.c_str());
+    qos.reliable();
+  }
+
+  if (durability == "transient_local") {
+    qos.transient_local();
+  } else if (durability == "volatile" || durability == "default") {
+    qos.durability_volatile();
+  } else {
+    RCLCPP_WARN(
+      node->get_logger(), "Unknown qos_durability '%s', using volatile", durability.c_str());
+    qos.durability_volatile();
+  }
+
+  return qos;
+}
+
 /**
  * Parse a network source string in the format "ip:port" or "ip:port:multicast"
  * @param source_str The source string to parse
@@ -426,7 +474,7 @@ void CeptonPublisher::ensure_pcl2_publisher(
 {
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create point cloud publisher for %lu", handle);
-    m[handle] = create_publisher<PointCloud2>(topic, 50);
+    m[handle] = create_publisher<PointCloud2>(topic, make_qos(this, "points", 50, true));
   }
 }
 
@@ -435,7 +483,8 @@ void CeptonPublisher::ensure_info_publisher(
 {
   if (!m.count(handle)) {
     RCLCPP_INFO(this->get_logger(), "Create info publisher");
-    m[handle] = create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, 10);
+    m[handle] =
+      create_publisher<cepton_messages::msg::CeptonSensorInfo>(topic, make_qos(this, "info", 10, false));
   }
 }
 
@@ -466,6 +515,12 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   declare_parameter("min_distance", 0.0);
   declare_parameter("expected_sensor_ips", vector<string>{});
   declare_parameter("aggregation_frame_count", 1);
+  declare_parameter("qos_reliability", "default");  // "default", "reliable", or "best_effort"
+  declare_parameter("qos_durability", "volatile");  // "volatile" or "transient_local"
+  declare_parameter("qos_history", "keep_last");    // "keep_last" or "keep_all"
+  declare_parameter("qos_points_depth", 50);
+  declare_parameter("qos_info_depth", 10);
+  declare_parameter("qos_status_depth", 5);
   aggregation_frame_count_ =
     static_cast<uint8_t>(get_parameter("aggregation_frame_count").as_int());
 
@@ -495,7 +550,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
     RCLCPP_DEBUG(
       this->get_logger(), "\tPublishing PCL2 points with SN: %s",
       use_sn_for_pcl2_ ? "true" : "false");
-    points_publisher = create_publisher<PointCloud2>("cepton_pcl2", 50);
+    points_publisher =
+      create_publisher<PointCloud2>("cepton_pcl2", make_qos(this, "points", 50, true));
 
     // Register callback
     ret = CeptonListenFramesEx(CEPTON_AGGREGATION_MODE_NATURAL, on_ex_frame, this);
@@ -508,7 +564,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   {
     // Create publisher
     RCLCPP_INFO(this->get_logger(), "Creating info publisher");
-    info_publisher = create_publisher<cepton_messages::msg::CeptonSensorInfo>("cepton_info", 10);
+    info_publisher = create_publisher<cepton_messages::msg::CeptonSensorInfo>(
+      "cepton_info", make_qos(this, "info", 10, false));
     // Register callback
     ret = CeptonListenSensorInfo(on_info, this);
     check_sdk_error(ret, "CeptonListenSensorInfo");
@@ -518,8 +575,8 @@ CeptonPublisher::CeptonPublisher() : Node("cepton_publisher")
   // Set up the sensor status publishing
   {
     RCLCPP_INFO(this->get_logger(), "Creating status publisher");
-    sensor_status_publisher =
-      create_publisher<cepton_messages::msg::CeptonSensorStatus>("cepton_sensor_status", 5);
+    sensor_status_publisher = create_publisher<cepton_messages::msg::CeptonSensorStatus>(
+      "cepton_sensor_status", make_qos(this, "status", 5, false));
 
     // Start the status monitor
     sensor_status_thread = thread([&]() {

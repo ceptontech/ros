@@ -14,6 +14,54 @@
 using namespace std;
 using PointCloud2 = sensor_msgs::msg::PointCloud2;
 
+rclcpp::QoS make_qos(
+  rclcpp::Node* node, const std::string& topic_kind, int default_depth, bool sensor_data_default)
+{
+  auto depth = default_depth;
+  const auto depth_param = node->get_parameter("qos_" + topic_kind + "_depth");
+  if (depth_param.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET) {
+    depth = static_cast<int>(depth_param.as_int());
+  }
+
+  auto history = node->get_parameter("qos_history").as_string();
+  auto reliability = node->get_parameter("qos_reliability").as_string();
+  auto durability = node->get_parameter("qos_durability").as_string();
+
+  if (history != "keep_all" && depth < 1) {
+    RCLCPP_WARN(
+      node->get_logger(), "Invalid QoS depth %d for %s, using %d", depth, topic_kind.c_str(),
+      default_depth);
+    depth = default_depth;
+  }
+
+  rclcpp::QoS qos = history == "keep_all" ? rclcpp::QoS(rclcpp::KeepAll())
+                                           : rclcpp::QoS(rclcpp::KeepLast(depth));
+
+  if (sensor_data_default && reliability == "default") {
+    qos.best_effort();
+  } else if (reliability == "best_effort") {
+    qos.best_effort();
+  } else if (reliability == "reliable" || reliability == "default") {
+    qos.reliable();
+  } else {
+    RCLCPP_WARN(
+      node->get_logger(), "Unknown qos_reliability '%s', using reliable", reliability.c_str());
+    qos.reliable();
+  }
+
+  if (durability == "transient_local") {
+    qos.transient_local();
+  } else if (durability == "volatile" || durability == "default") {
+    qos.durability_volatile();
+  } else {
+    RCLCPP_WARN(
+      node->get_logger(), "Unknown qos_durability '%s', using volatile", durability.c_str());
+    qos.durability_volatile();
+  }
+
+  return qos;
+}
+
 #pragma pack(push, 1)
 struct CeptonPointEx
 {
@@ -39,6 +87,11 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber")
   declare_parameter("subscribe_cepton_info", subscribeCeptonInfo);
   declare_parameter("subscribe_cepton_panic", subscribeCeptonPanic);
   declare_parameter("export_to_csv", export_to_csv_);
+  declare_parameter("qos_reliability", "default");  // "default", "reliable", or "best_effort"
+  declare_parameter("qos_durability", "volatile");  // "volatile" or "transient_local"
+  declare_parameter("qos_history", "keep_last");    // "keep_last" or "keep_all"
+  declare_parameter("qos_points_depth", 10);
+  declare_parameter("qos_info_depth", 10);
 
   // Check parameter overrides
   rclcpp::Parameter pSubscribePcl2 = get_parameter("subscribe_pcl2");
@@ -56,12 +109,14 @@ CeptonSubscriber::CeptonSubscriber() : Node("cepton_subscriber")
   // Subscribe to PointCloud2
   if (subscribePcl2)
     pointsSubscriber = create_subscription<PointCloud2>(
-      "cepton_pcl2", 10, bind(&CeptonSubscriber::recv_points, this, placeholders::_1));
+      "cepton_pcl2", make_qos(this, "points", 10, true),
+      bind(&CeptonSubscriber::recv_points, this, placeholders::_1));
 
   // Subscribe to info messages
   if (subscribeCeptonInfo)
     infoSubscriber = create_subscription<cepton_messages::msg::CeptonSensorInfo>(
-      "cepton_info", 10, bind(&CeptonSubscriber::recv_info, this, placeholders::_1));
+      "cepton_info", make_qos(this, "info", 10, false),
+      bind(&CeptonSubscriber::recv_info, this, placeholders::_1));
 }
 
 void CeptonSubscriber::recv_info(const cepton_messages::msg::CeptonSensorInfo::SharedPtr info)
