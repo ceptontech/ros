@@ -69,6 +69,12 @@ target_include_directories(
                           $<INSTALL_INTERFACE:${PROJECT_NAME}/include>)
 target_compile_definitions(
   ${PROJECT_NAME} PUBLIC CEPTON_PUBLISHER_VERSION="${CEPTON_PUBLISHER_VERSION}")
+if (WITH_POLAR)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_POLAR)
+endif()
+if (WITH_TS_CH_F)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_TS_CH_F)
+endif()
 
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)
 
