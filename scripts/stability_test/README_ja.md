@@ -82,6 +82,8 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 | `--sensor-interface` | 自動検出 | センサデータが届く NIC 名。`environment.json` の記録と NIC 統計に使用 |
 | `--perf-clock` | (off) | `perf stat` で Publisher の実効クロックを計測。**既定で無効**（下記参照） |
 | `--startup-timeout` | `30.0` | 台ごとトピック検出の待機上限（秒） |
+| `--no-launch` | (off) | Publisher を起動せず、起動済みの Publisher（またはドライランの疑似トピック）を計測。スクリプトがパラメータを生成しないため、全点設定・`--config-path` は Publisher に反映されない |
+| `--attach-pid` | なし | `--no-launch` 時のみ使用。監視する既存 Publisher の PID を指定。自動起動時は起動したプロセスを常に監視するため不要。`--no-launch` で未指定なら Publisher の CPU/メモリ・生存は監視しない |
 | `--config-path` | 版ごとの既定 YAML | 元にするパラメータファイル |
 | `--output-dir` | `scripts/stability_test/stability_output/<日時>` | 出力先 |
 
