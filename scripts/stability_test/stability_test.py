@@ -1365,8 +1365,7 @@ class Ros2Backend(RosBackend):
     def probe_build_hint(self):
         return (
             "stability_probe (ROS2) is not built. Build it with:\n"
-            "  ln -s %s/tools/stability_probe_ros2 <colcon_ws>/src/stability_probe\n"
-            "  cd <colcon_ws> && colcon build --packages-select stability_probe"
+            "  cd %s/ros2 && colcon build --base-paths ../tools/stability_probe_ros2"
             " && source install/setup.bash\n"
             "or run with --rate-method inproc (low-rate dry runs only)."
             % REPO_ROOT

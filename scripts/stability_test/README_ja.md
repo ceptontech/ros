@@ -63,10 +63,10 @@ source catkin_ws/devel/setup.bash   # cepton_ros と stability_probe の両方�
 ```bash
 source /opt/ros/humble/setup.bash
 
-# プローブを colcon ワークスペースへリンクしてビルド（初回のみ）
+# プローブをビルド（初回・プローブ更新時）
+# --base-paths はこの回だけ探索先を置き換える。通常の colcon build はプローブを探索しない
 cd ~/ros/ros2
-ln -s ../tools/stability_probe_ros2 ./src/stability_probe
-colcon build --packages-select stability_probe
+colcon build --base-paths ../tools/stability_probe_ros2
 
 source install/setup.bash
 ```
