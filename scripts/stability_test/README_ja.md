@@ -223,7 +223,7 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
   ※ ROS1 ドライバは `temperature` を設定しないため ROS1 では常に 0
 - `resource.csv` … Publisher の RSS(MB) / CPU(%) 時系列
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
-- `environment.json` … **計測時のマシン設定スナップショット**（後述）
+- `environment.json` … **計測時のマシン設定スナップショット**（先述）
 - `resource_system.csv` … マシン全体の時系列。`cpu_percent` / `cpu_max_core_pct` / `load1` /
   `temp_c` / `net_rx_softirq_s` / `udp_in_s` / `udp_rcvbuf_err_s` / `nic_rx_mbps` /
   `nic_drop_s` / `freq_{min,median,max}_mhz` / `top_processes`（各窓で CPU を最も食った
