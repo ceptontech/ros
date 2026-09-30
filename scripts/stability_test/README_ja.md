@@ -111,6 +111,12 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 - **プロセス生存**: duration 中に Publisher プロセスが異常終了しないこと
 - **CPU/メモリ**: RSS / CPU の線形回帰の傾きが閾値を超えて増加し続けないこと
 
+`udp_rcvbuf_err` と `nic_drop` は記録のみで、合否には含めていません（妥当な閾値をまだ
+持たないため）。レポートには情報行として増分が出ます。`udp_rcvbuf_err` は
+`/proc/net/snmp` の `Udp: RcvbufErrors`、すなわち**ホスト全体・全 UDP ソケットの合計（IPv4 のみ）**
+である点に注意してください。特定のソケットに帰属させたいときは `environment.json` の
+`sockets[].drops` を使います。
+
 ### 全点設定（既定 ON、`--no-all-points` で無効化）
 
 点数を公称値と照合するため、生成する試験パラメータで include_*
@@ -122,48 +128,6 @@ include_* は SDK が出力した点を絞り込むだけですが、この 2 �
 （`PARSE_TOF`→`PARSE_AMBIENT`、`RETURN_FIRST`→`RETURN_BOTH`）を切り替え、SDK が出す点
 そのものを変えるためです。試験対象は通常の TOF・ファーストリターン経路で、
 `--expected-points` の公称値もこの経路の値です。
-
-### 環境スナップショット `environment.json`
-
-Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
-
-- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
-  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
-- `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
-- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
-  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
-  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
-  `d` は後述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
-- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
-  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
-- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
-  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
-- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
-  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
-  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
-  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
-- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
-- `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
-  **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
-- `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
-  `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
-- `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
-- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
-  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
-  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
-  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
-  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
-  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
-  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
-  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
-  `<segment_size>` で変更する
-- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
-
-`udp_rcvbuf_err` と `nic_drop` は記録のみで、合否には含めていません（妥当な閾値をまだ
-持たないため）。レポートには情報行として増分が出ます。`udp_rcvbuf_err` は
-`/proc/net/snmp` の `Udp: RcvbufErrors`、すなわち**ホスト全体・全 UDP ソケットの合計（IPv4 のみ）**
-である点に注意してください。特定のソケットに帰属させたいときは `environment.json` の
-`sockets[].drops` を使います。
 
 ### レート/ドロップの 2 つの基準（arrival と stamp）
 
@@ -187,7 +151,7 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
   ※ ROS1 ドライバは `temperature` を設定しないため ROS1 では常に 0
 - `resource.csv` … Publisher の RSS(MB) / CPU(%) 時系列
 - `resource_probe.csv` … プローブ自身の RSS / CPU 時系列（計測の信頼性確認用）
-- `environment.json` … **計測時のマシン設定スナップショット**（先述）
+- `environment.json` … **計測時のマシン設定スナップショット**（後述）
 - `resource_system.csv` … マシン全体の時系列。`cpu_percent` / `cpu_max_core_pct` / `load1` /
   `temp_c` / `net_rx_softirq_s` / `udp_in_s` / `udp_rcvbuf_err_s` / `nic_rx_mbps` /
   `nic_drop_s` / `freq_{min,median,max}_mhz` / `top_processes`（各窓で CPU を最も食った
@@ -226,6 +190,42 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 
 終了コード: 全合格 `0` / いずれか不合格 `1` / 前提未達（台数不足・プローブ未ビルド・
 プローブ異常終了等）`2`。
+
+### 環境スナップショット `environment.json`
+
+Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
+
+- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
+  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
+- `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
+- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
+  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
+  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
+  `d` は先述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
+- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
+  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
+- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
+  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
+- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
+  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
+  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
+  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
+- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
+- `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
+  **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
+- `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
+  `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
+- `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
+- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
+  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
+  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
+  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
+  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
+  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
+  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
+  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
+  `<segment_size>` で変更する
+- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
 
 ## 計測アーキテクチャ
 
