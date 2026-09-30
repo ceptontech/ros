@@ -235,7 +235,7 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 
 - 全合格 `0`
 - いずれか不合格 `1`
-- 前提未達（台数不足・プローブ未ビルド・プローブ異常終了等）`2`
+- 前提未達（台数不足・Publisher 起動失敗・プローブ未ビルド・プローブ異常終了等）`2`
 
 > **注意：終了コード `1` にはスクリプト自体の異常終了も含まれる可能性があります**
 >
@@ -255,7 +255,7 @@ flowchart TB
     PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN[/"点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"/]
     PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN[/"SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"/]
 
-    subgraph DP["データプレーン（台ごとに1プロセス・C++）"]
+    subgraph DP["データプレーン（C++・全台を1プロセスで購読）"]
         DPIN --> PR["stability_probe<br/>到着時刻・header.stamp・width を記録"]
         PR --> CSV[("sensor_〈SN〉.csv")]
     end
@@ -274,11 +274,39 @@ flowchart TB
 *四角＝プロセス/実体、平行四辺形＝ROS トピック、円柱＝ファイル。実線＝データ/制御フロー、点線＝リソース監視。点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
 
 - **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
-  センサ1台ごとに起動。点群トピックを購読し、到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
+  全センサの点群トピックを1プロセスで購読し、到着時刻・`header.stamp`・`width` をトピック（台）別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
 - **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
   `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
 
 >計測用ノードをC++で作成した理由：4台同時接続環境ではトピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
+
+### 起動シーケンス
+
+スクリプトは次の順に処理します。途中で前提を満たせなかった場合は終了コード `2` で止まります。
+
+1. （ROS1 のみ）roscore が起動していなければ起動
+2. 試験パラメータを生成して Publisher を起動（`--no-launch` 時は省略）。起動直後に終了していれば `2`
+3. Publisher の CPU/RSS・マシン全体の監視を開始（`--no-launch` 時の Publisher 監視は `--attach-pid` 指定時のみ）
+4. 点群トピックが `--expected-sensors` 台分そろうまで待機（最大 `--startup-timeout` 秒）。
+   そろわない、または待機中に Publisher が終了すれば `2`
+5. SensorInfo の購読を開始（`--no-info-check` 時は省略）。メッセージ型を読み込めなければ `2`
+6. プローブを起動（`--rate-method inproc` 時は Python で点群を購読）。プローブ未ビルドなら `2`
+7. 環境スナップショット `environment.json` を収集
+8. **ここから `--duration` 秒間計測**。Publisher が異常終了すると計測を打ち切り、プロセス生存が
+   不合格（`1`）。プローブが異常終了すると `2`
+9. プローブ → Publisher の順に停止（プローブの CSV を確定させるため先に止める）
+10. CSV を読み込んで評価し、`summary.json`・CSV・グラフを出力してレポートを表示
+
+各系列の記録は手順 8 より前から始まるため、実際の記録期間は系列ごとに異なります（終了はいずれも手順 9）。
+
+| 系列 | 記録開始 |
+|---|---|
+| Publisher の CPU/RSS・マシン全体・プロセス内部 | 手順 3（トピック待機の時間も含む） |
+| SensorInfo | 手順 5 |
+| 点群 | 手順 6 |
+
+`--warmup` の除外区間も各系列の先頭から数えます。点群・SensorInfo は最初の受信から、
+Publisher の CPU/RSS は Publisher の起動からです。
 
 ## 高スループット時の注意（環境側）
 
