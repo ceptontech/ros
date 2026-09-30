@@ -4,42 +4,6 @@ Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続�
 **周期・点数安定性・フレームドロップ・SensorInfo レート・プロセス生存・CPU/メモリのリーク**
 を自動評価するスクリプトです。
 
-## 計測アーキテクチャ（なぜ C++ プローブが必要か）
-
-計測は 2 層に分かれています。
-
-```mermaid
-flowchart TB
-    SENSOR["Cepton センサ（台ごと）"] --> PUB["Publisher<br/>(ドライバ/SDK・被試験対象 DUT)"]
-
-    PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN[/"点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"/]
-    PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN[/"SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"/]
-
-    subgraph DP["データプレーン（台ごとに1プロセス・C++）"]
-        DPIN --> PR["stability_probe<br/>到着時刻・header.stamp・width を記録"]
-        PR --> CSV[("sensor_〈SN〉.csv")]
-    end
-
-    subgraph CP["コントロールプレーン（Python）"]
-        CPIN -- "直接購読<br/>(serial_numberで台ごとに振分け)" --> ST["stability_test.py"]
-        ST --> REPORT[("summary.json<br/>framerate.png 等")]
-    end
-
-    ST -- "起動" --> PUB
-    ST -- "起動" --> PR
-    ST -. "/proc でCPU・RSSを監視" .-> PUB
-    ST -. "/proc でCPU・RSSを監視" .-> PR
-    CSV -- "計測終了後に読込み評価" --> ST
-```
-*四角＝プロセス/実体、平行四辺形＝ROS トピック、円柱＝ファイル。実線＝データ/制御フロー、点線＝リソース監視。点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
-
-- **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
-  センサ1台ごとに起動。点群トピックを購読し、到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
-- **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
-  `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
-
->計測用ノードをC++で作成した理由：4台同時接続環境ではトピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
-
 ## 使用条件
 
 - Ubuntu + ROS 環境
@@ -64,8 +28,6 @@ source catkin_ws/devel/setup.bash   # cepton_ros と stability_probe の両方�
 source /opt/ros/humble/setup.bash
 
 # プローブをビルド（初回・プローブ更新時）
-# --base-paths はこの回だけ探索先を置き換える。通常の colcon build はプローブを探索しない
-cd ~/ros/ros2
 colcon build --base-paths ../tools/stability_probe_ros2
 
 source install/setup.bash
@@ -262,6 +224,42 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 
 終了コード: 全合格 `0` / いずれか不合格 `1` / 前提未達（台数不足・プローブ未ビルド・
 プローブ異常終了等）`2`。
+
+## 計測アーキテクチャ
+
+計測は 2 層に分かれています。
+
+```mermaid
+flowchart TB
+    SENSOR["Cepton センサ（台ごと）"] --> PUB["Publisher<br/>(ドライバ/SDK・被試験対象 DUT)"]
+
+    PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN[/"点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"/]
+    PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN[/"SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"/]
+
+    subgraph DP["データプレーン（台ごとに1プロセス・C++）"]
+        DPIN --> PR["stability_probe<br/>到着時刻・header.stamp・width を記録"]
+        PR --> CSV[("sensor_〈SN〉.csv")]
+    end
+
+    subgraph CP["コントロールプレーン（Python）"]
+        CPIN -- "直接購読<br/>(serial_numberで台ごとに振分け)" --> ST["stability_test.py"]
+        ST --> REPORT[("summary.json<br/>framerate.png 等")]
+    end
+
+    ST -- "起動" --> PUB
+    ST -- "起動" --> PR
+    ST -. "/proc でCPU・RSSを監視" .-> PUB
+    ST -. "/proc でCPU・RSSを監視" .-> PR
+    CSV -- "計測終了後に読込み評価" --> ST
+```
+*四角＝プロセス/実体、平行四辺形＝ROS トピック、円柱＝ファイル。実線＝データ/制御フロー、点線＝リソース監視。点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
+
+- **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
+  センサ1台ごとに起動。点群トピックを購読し、到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
+- **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
+  `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
+
+>計測用ノードをC++で作成した理由：4台同時接続環境ではトピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
 
 ## 高スループット時の注意（環境側）
 
