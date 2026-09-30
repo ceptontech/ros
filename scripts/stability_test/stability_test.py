@@ -88,6 +88,16 @@ def _read_ppid_comm(pid):
     return int(rest[1]), comm  # ppid, comm
 
 
+def _pid_exited(pid):
+    """True if pid is gone or a zombie waiting to be reaped."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            data = f.read()
+    except OSError:
+        return True
+    return data[data.rfind(")") + 2] in "ZX"
+
+
 def read_rss_mb(pid):
     with open("/proc/%d/status" % pid) as f:
         for line in f:
@@ -131,6 +141,9 @@ def resolve_target_pid(root_pid, name_hint, timeout=10.0):
                 return p
             stack.extend(children.get(p, []))
         if name_hint in comms.get(root_pid, ""):
+            return root_pid
+        # The launcher already exited (e.g. package not found): nothing to wait for.
+        if _pid_exited(root_pid):
             return root_pid
         time.sleep(0.3)
     return root_pid
@@ -1064,6 +1077,13 @@ class RosBackend:
         """Launch the publisher; return (popen, target_pid)."""
         raise NotImplementedError
 
+    def publisher_available(self):
+        """True if the driver package is built and on the path."""
+        raise NotImplementedError
+
+    def publisher_build_hint(self):
+        raise NotImplementedError
+
     def probe_available(self):
         """True if the C++ stability_probe package is built and on the path."""
         raise NotImplementedError
@@ -1078,7 +1098,8 @@ class RosBackend:
     def init_client(self):
         raise NotImplementedError
 
-    def discover_sensor_topics(self, expected, timeout):
+    def discover_sensor_topics(self, expected, timeout, alive=None):
+        """Wait for `expected` sensor topics; stop early once alive() is false."""
         raise NotImplementedError
 
     def subscribe(self, topic, on_message):
@@ -1196,6 +1217,15 @@ class Ros1Backend(RosBackend):
         pid = resolve_target_pid(popen.pid, self.node_hint)
         return popen, pid
 
+    def publisher_available(self):
+        return _run(["rospack", "find", "cepton_ros"]) is not None
+
+    def publisher_build_hint(self):
+        return (
+            "cepton_ros (ROS1) is not found. Source the catkin workspace that built it:\n"
+            "  source <catkin_ws>/devel/setup.bash"
+        )
+
     def probe_available(self):
         try:
             return subprocess.run(
@@ -1229,11 +1259,13 @@ class Ros1Backend(RosBackend):
         self._rospy = rospy
         rospy.init_node("cepton_stability_test", anonymous=True, disable_signals=True)
 
-    def discover_sensor_topics(self, expected, timeout):
+    def discover_sensor_topics(self, expected, timeout, alive=None):
         rospy = self._rospy
         deadline = time.time() + timeout
         found = set()
         while time.time() < deadline:
+            if alive is not None and not alive():
+                break
             for topic, _type in rospy.get_published_topics():
                 if topic.startswith(self.topic_prefix):
                     found.add(topic)
@@ -1353,6 +1385,16 @@ class Ros2Backend(RosBackend):
         pid = resolve_target_pid(popen.pid, self.node_hint)
         return popen, pid
 
+    def publisher_available(self):
+        return _run(["ros2", "pkg", "prefix", "cepton_publisher"]) is not None
+
+    def publisher_build_hint(self):
+        return (
+            "cepton_publisher (ROS2) is not found. Source the driver workspace:\n"
+            "  source %s/ros2/install/setup.bash\n"
+            "(not built yet? cd %s/ros2 && colcon build)" % (REPO_ROOT, REPO_ROOT)
+        )
+
     def probe_available(self):
         try:
             return subprocess.run(
@@ -1365,8 +1407,7 @@ class Ros2Backend(RosBackend):
     def probe_build_hint(self):
         return (
             "stability_probe (ROS2) is not built. Build it with:\n"
-            "  ln -s %s/tools/stability_probe_ros2 <colcon_ws>/src/stability_probe\n"
-            "  cd <colcon_ws> && colcon build --packages-select stability_probe"
+            "  cd %s/ros2 && colcon build --base-paths ../tools/stability_probe_ros2"
             " && source install/setup.bash\n"
             "or run with --rate-method inproc (low-rate dry runs only)."
             % REPO_ROOT
@@ -1389,10 +1430,12 @@ class Ros2Backend(RosBackend):
         rclpy.init()
         self._node = Node("cepton_stability_test")
 
-    def discover_sensor_topics(self, expected, timeout):
+    def discover_sensor_topics(self, expected, timeout, alive=None):
         deadline = time.time() + timeout
         found = set()
         while time.time() < deadline:
+            if alive is not None and not alive():
+                break
             for name, _types in self._node.get_topic_names_and_types():
                 if name.startswith(self.topic_prefix):
                     found.add(name)
@@ -2597,9 +2640,16 @@ def main():
                 monitor = ResourceMonitor(pid, _DummyPopen(), args.resource_interval)
                 monitor.start()
         else:
+            if not backend.publisher_available():
+                print("ERROR: %s" % backend.publisher_build_hint(), file=sys.stderr)
+                return 2
             print("launching publisher (ros%d, aggregation_frame_count=%d)" %
                   (args.ros_version, args.aggregation_frame_count), flush=True)
             popen, pid = backend.launch_publisher()
+            if popen.poll() is not None:
+                print("ERROR: publisher exited with code %d right after launch; "
+                      "see its output above" % popen.returncode, file=sys.stderr)
+                return 2
             print("publisher launched; monitoring pid %d" % pid, flush=True)
             monitor = ResourceMonitor(pid, popen, args.resource_interval)
             monitor.start()
@@ -2617,10 +2667,21 @@ def main():
                           % perf_counter.unavailable_reason, flush=True)
 
         backend.init_client()
-        topics = backend.discover_sensor_topics(args.expected_sensors, args.startup_timeout)
+        print("waiting up to %g s for %d sensor topic(s) matching %s* ..." %
+              (args.startup_timeout, args.expected_sensors, backend.topic_prefix), flush=True)
+        publisher_alive = None if popen is None else (lambda: popen.poll() is None)
+        topics = backend.discover_sensor_topics(args.expected_sensors, args.startup_timeout,
+                                                publisher_alive)
+        if popen is not None and popen.poll() is not None:
+            print("ERROR: publisher exited with code %d before its sensor topics "
+                  "appeared; see its output above" % popen.returncode, file=sys.stderr)
+            return 2
         if len(topics) < args.expected_sensors:
-            print("ERROR: found %d/%d sensor topics: %s" %
-                  (len(topics), args.expected_sensors, topics), file=sys.stderr)
+            print("ERROR: found %d/%d sensor topics matching %s* within %g s: %s\n"
+                  "       check that the sensors are powered and reachable from this host;\n"
+                  "       to test without sensors, see the dry-run section of the README" %
+                  (len(topics), args.expected_sensors, backend.topic_prefix,
+                   args.startup_timeout, topics), file=sys.stderr)
             return 2
 
         if info_enabled:
