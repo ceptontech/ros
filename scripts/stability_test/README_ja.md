@@ -64,11 +64,11 @@ source catkin_ws/devel/setup.bash   # cepton_ros と stability_probe の両方�
 source /opt/ros/humble/setup.bash
 
 # プローブを colcon ワークスペースへリンクしてビルド（初回のみ）
-ln -s /path/to/repo/tools/stability_probe_ros2 <colcon_ws>/src/stability_probe
-cd <colcon_ws> && colcon build --packages-select stability_probe
+cd ~/ros/ros2
+ln -s ../tools/stability_probe_ros2 ./src/stability_probe
+colcon build --packages-select stability_probe
 
-source <colcon_ws>/install/setup.bash
-source ros2/install/setup.bash       # cepton_publisher をビルドしたワークスペース
+source install/setup.bash
 ```
 
 ## 使い方
@@ -110,7 +110,7 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 | `--info-rate-window` | `5.0` | SensorInfo の窓平均の窓長（秒）。点群より 1 桁低レートなので既定は長め |
 | `--no-info-check` | (off) | SensorInfo を購読せずレート判定をスキップ（ドライラン用） |
 | `--expected-points` | `349960` | SDK 公称点数。合否 = 全フレームの width == この値 × aggregation_count。`0` で「全フレーム同一」のみ判定（ドライラン用） |
-| `--no-all-points` | (off) | 全点設定の自動上書きを無効化（既定は include_* 全 true・フィルタ全開） |
+| `--no-all-points` | (off) | 全点設定の自動上書きを無効化（既定は ambient・second_return 以外の include_* を true・フィルタ全開） |
 | `--warmup` | `5.0` | 起動直後の除外秒数（点群・SensorInfo とも各系列の先頭から適用） |
 | `--drop-factor` | `1.5` | 間隔 > `factor × 公称周期` をドロップ判定 |
 | `--mem-growth-threshold` | `1.0` | RSS 増加の不合格閾値（MB/min） |
@@ -147,15 +147,17 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 - **プロセス生存**: duration 中に Publisher プロセスが異常終了しないこと
 - **CPU/メモリ**: RSS / CPU の線形回帰の傾きが閾値を超えて増加し続けないこと
 
-### 全点設定（`--all-points`、既定 ON）
+### 全点設定（既定 ON、`--no-all-points` で無効化）
 
-点数を公称値と照合するため、生成する試験パラメータで include_*（ROS1:
-saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 は宣言済み
-キーのみ）を全 true、min/max altitude・azimuth を ±90、min_distance 0、max_distance 1000
-に上書きします。**注意**: ドライバには設定で無効化できないハードコードの 500m フィルタ
-（`publisher_nodelet.cpp` の `distance_squared >= 500*500`）があるため、公称値との厳密一致が
-成立するかは初回実測で確認してください。一定のオフセットが出る場合は、その実測定数を
-`--expected-points` に指定して運用します。
+点数を公称値と照合するため、生成する試験パラメータで include_*
+（saturated/invalid/noise/blocked/retro/retro_weak）を true、min/max altitude・azimuth を
+±90、min_distance 0、max_distance 1000 に上書きします（ROS1・ROS2 共通）。
+
+`include_second_return_points` と `include_ambient_points` は false に固定します。他の
+include_* は SDK が出力した点を絞り込むだけですが、この 2 つは SDK の制御フラグ
+（`PARSE_TOF`→`PARSE_AMBIENT`、`RETURN_FIRST`→`RETURN_BOTH`）を切り替え、SDK が出す点
+そのものを変えるためです。試験対象は通常の TOF・ファーストリターン経路で、
+`--expected-points` の公称値もこの経路の値です。
 
 ### 環境スナップショット `environment.json`
 
