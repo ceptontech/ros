@@ -285,14 +285,15 @@ flowchart TB
 スクリプトは次の順に処理します。途中で前提を満たせなかった場合は終了コード `2` で止まります。
 
 1. （ROS1 のみ）roscore が起動していなければ起動
-2. 試験パラメータを生成して Publisher を起動（`--no-launch` 時は省略）。起動直後に終了していれば `2`
-3. Publisher の CPU/RSS・マシン全体の監視を開始（`--no-launch` 時の Publisher 監視は `--attach-pid` 指定時のみ）
-4. 点群トピックが `--expected-sensors` 台分そろうまで待機（最大 `--startup-timeout` 秒）。
+2. 試験パラメータを生成して Publisher を起動（`--no-launch` 時は省略）。ドライバのパッケージが
+   見つからない、または起動直後に終了していれば `2`
+3. Publisher の CPU/RSS・マシン全体の監視を開始
+4. 点群トピックが `--expected-sensors` 台分そろうまで最大 `--startup-timeout` 秒待機。
    そろわない、または待機中に Publisher が終了すれば `2`
 5. SensorInfo の購読を開始（`--no-info-check` 時は省略）。メッセージ型を読み込めなければ `2`
 6. プローブを起動（`--rate-method inproc` 時は Python で点群を購読）。プローブ未ビルドなら `2`
 7. 環境スナップショット `environment.json` を収集
-8. **ここから `--duration` 秒間計測**。Publisher が異常終了すると計測を打ち切り、プロセス生存が
+8.  `--duration` 秒間計測。Publisher が異常終了すると計測を打ち切り、プロセス生存が
    不合格（`1`）。プローブが異常終了すると `2`
 9. プローブ → Publisher の順に停止（プローブの CSV を確定させるため先に止める）
 10. CSV を読み込んで評価し、`summary.json`・CSV・グラフを出力してレポートを表示
