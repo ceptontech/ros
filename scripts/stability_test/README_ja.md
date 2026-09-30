@@ -7,7 +7,7 @@ Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続�
 ## 使用条件
 
 - Ubuntu + ROS 環境
-- C++ プローブのビルド（事前準備の章を参照）
+- ドライバと C++ プローブのビルド（事前準備の章を参照）
 - `matplotlib`がインストールされたPython環境（未インストール時はグラフをスキップ、数値評価は実行）
 
 ## 事前準備
@@ -27,6 +27,9 @@ source catkin_ws/devel/setup.bash   # cepton_ros と stability_probe の両方�
 ```bash
 source /opt/ros/humble/setup.bash
 
+cd ~/ros/ros2
+# ドライバをビルド（cepton_messages / cepton_publisher / cepton_subscriber）
+colcon build
 # プローブをビルド（初回・プローブ更新時）
 colcon build --base-paths ../tools/stability_probe_ros2
 
@@ -39,7 +42,7 @@ source install/setup.bash
 2. Terminalから次のコマンドを実行
 
 ```bash
-# ROS1 環境を source した状態で、1 台・600 秒・count=1（20Hz）
+# ROS 環境を source した状態で、1 台・600 秒・count=1（20Hz）
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 
 # 続けて count=2（10Hz、期待点数は自動で 2 倍の 699,920 に）
