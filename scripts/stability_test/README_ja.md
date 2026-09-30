@@ -42,7 +42,13 @@ source install/setup.bash
 2. Terminalから次のコマンドを実行
 
 ```bash
-# ROS 環境を source した状態で、1 台・600 秒・count=1（20Hz）
+# ドライバとプローブをビルドしたワークスペースを source（ターミナルを開くたびに必要。
+# /opt/ros の環境も一緒に読み込まれる）
+source ~/ros/ros2/install/setup.bash   # ROS2
+# source catkin_ws/devel/setup.bash    # ROS1 の場合
+cd ~/ros
+
+# 1 台・600 秒・count=1（20Hz）。ROS1/ROS2 は環境から自動判定（--ros-version）
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 
 # 続けて count=2（10Hz、期待点数は自動で 2 倍の 699,920 に）
@@ -50,9 +56,6 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 
 # 4 台まとめて試験する場合は台数を明示（--expected-sensors の既定は 1）
 python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1 --expected-sensors 4
-
-# ROS2 環境を source すれば同じコマンドで ROS2 側を試験（--ros-version は自動）
-python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 ```
 
 
