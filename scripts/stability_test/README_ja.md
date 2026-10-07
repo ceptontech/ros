@@ -2,39 +2,13 @@
 
 Cepton LiDAR ドライバ（ROS1 / ROS2）を実機複数台で長時間連続稼働させ、点群配信の
 **周期・点数安定性・フレームドロップ・SensorInfo レート・プロセス生存・CPU/メモリのリーク**
-を自動評価するスクリプトです。ROS1 と ROS2 を `--ros-version` で切り替えられます（既定は環境変数
-`ROS_VERSION` から自動判定）。
+を自動評価するスクリプトです。
 
-## 計測アーキテクチャ（なぜ C++ プローブが必要か）
+## 使用条件
 
-計測は 2 層に分かれています。
-
-- **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
-  台ごとのトピック（ROS1: `/cepton3/points_sn_<SN>` / ROS2: `/serial_<SN>`）を購読し、
-  到着時刻・`header.stamp`・`width` をトピック別 CSV に逐次記録するだけの ~100 行のノード。
-  ドライバ非改変・Cepton SDK 非依存。
-- **コントロールプレーン = Python (`stability_test.py`)**。Publisher/プローブの起動と
-  `/proc` によるリソース監視、CSV の評価、グラフ・レポート生成。加えて **SensorInfo**
-  （ROS1: `/cepton3/sensor_information` / ROS2: `/cepton_info`）はこの Python プロセスから
-  直接購読します。1 メッセージ数百バイト・公称 2Hz と点群より 4 桁以上軽く GIL が
-  ボトルネックにならないため、C++ プローブを介する必要がありません（全台分が 1 本の
-  トピックに流れるので、メッセージ内の `serial_number` で台ごとに振り分けます）。
-
-Python 購読（`--rate-method inproc`）を実機で使ってはいけない理由：全点設定では
-トピック実流量が **349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）** に達し、
-rospy/rclpy は全バイトが GIL 配下を通るため（実効 ~100–200 MB/s）追従できません。
-さらに購読詰まりの逆圧で **Publisher の送信キュー（queue_size=50 × 4 topic × ~11 MB ≈ 2.2 GB）
-が滞留し、メモリ評価まで汚染**されます（実測：Python 購読の 1 時間ランで RSS 2.5 GB。
-プローブ方式ではこの滞留は発生しません）。C++ プローブなら ~900 MB/s は 1 コアの数%で、
-計測がドライバ（DUT）を歪めません。プローブ自身の CPU/RSS もレポートに併記され、
-計測が追従できていたことを確認できます。
-
-## 依存
-
-- 選択したバージョンの `rospy`（ROS1）または `rclpy`（ROS2）— トピック検出等の制御用
-- **C++ プローブのビルド**（下記。`--rate-method inproc` の低レート・ドライランでは不要）
-- グラフ出力に `matplotlib`（未インストール時はグラフをスキップし、数値評価は継続）
-- CPU/メモリ計測は `/proc` を直接読むため追加依存なし（Ubuntu 前提）
+- Ubuntu + ROS 環境
+- ドライバと C++ プローブのビルド（事前準備の章を参照）
+- `matplotlib`がインストールされたPython環境（未インストール時はグラフをスキップ、数値評価は実行）
 
 ## 事前準備
 
@@ -53,48 +27,47 @@ source catkin_ws/devel/setup.bash   # cepton_ros と stability_probe の両方�
 ```bash
 source /opt/ros/humble/setup.bash
 
-# プローブを colcon ワークスペースへリンクしてビルド（初回のみ）
-ln -s /path/to/repo/tools/stability_probe_ros2 <colcon_ws>/src/stability_probe
-cd <colcon_ws> && colcon build --packages-select stability_probe
+cd ~/ros/ros2
+# ドライバをビルド（cepton_messages / cepton_publisher / cepton_subscriber）
+colcon build
+# プローブをビルド（初回・プローブ更新時）
+colcon build --base-paths ../tools/stability_probe_ros2
 
-source <colcon_ws>/install/setup.bash
-source ros2/install/setup.bash       # cepton_publisher をビルドしたワークスペース
+source install/setup.bash
 ```
-
-いずれも `ROS_VERSION` が設定されるので、`--ros-version` は省略できます。
 
 ## 使い方
 
-`--aggregation-frame-count` は 1 設定/実行です（`1` ≈ 20Hz, `2` ≈ 10Hz）。
-ROS1 では内部で `aggregate_frames`（`false`/`true`）に、ROS2 では `aggregation_frame_count`
-にマッピングされます。
+1. LiDAR実機を接続し電源を投入
+2. Terminalから次のコマンドを実行
 
 ```bash
-# ROS1 環境を source した状態で、1 台・600 秒・count=1（20Hz）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
+# ドライバとプローブをビルドしたワークスペースを source（ターミナルを開くたびに必要。
+# /opt/ros の環境も一緒に読み込まれる）
+source ~/ros/ros2/install/setup.bash   # ROS2
+# source catkin_ws/devel/setup.bash    # ROS1 の場合
+cd ~/ros
+
+# 1 台・600 秒・count=1（20Hz）。ROS1/ROS2 は環境から自動判定（--ros-version）
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1
 
 # 続けて count=2（10Hz、期待点数は自動で 2 倍の 699,920 に）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 2
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 2
 
 # 4 台まとめて試験する場合は台数を明示（--expected-sensors の既定は 1）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1 \
-  --expected-sensors 4
-
-# ROS2 環境を source すれば同じコマンドで ROS2 側を試験（--ros-version は自動）
-python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
+python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-frame-count 1 --expected-sensors 4
 ```
 
-既定で**全点設定**（後述）の一時パラメータを自動生成して Publisher を起動します。
 
-## 主なオプション
+## 実行時オプション
 
 | オプション | 既定 | 説明 |
 |---|---|---|
 | `--duration` | (必須) | 計測時間（秒） |
 | `--aggregation-frame-count` | `1` | `1`(≈20Hz) か `2`(≈10Hz) |
-| `--nominal-hz` | `20 / aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
-| `--ros-version` | `$ROS_VERSION` | `1` か `2` |
-| `--rate-method` | `probe` | `probe`=C++ 計測ノード（実機は必須）/ `inproc`=Python 購読（低レートのドライラン専用） |
+| `--nominal-hz` | `20 ÷ aggregation-frame-count` | 期待する publish レート[Hz]。既定値は**センサが 20 fps で出力する前提**の計算値。ドライバ自身がフレームレートを変える場合（単一パリティ集約はフレームあたり点数を変えずにレートを半減させる）は明示指定が必要 |
+| `--ros-version` | `$ROS_VERSION` | `1` か `2`。ROS環境を source　してあれば不要 |
+| `--rate-method` | `probe` | `probe`=C++ 計測ノード/ `inproc`=Python 購読（低レートのドライラン専用） |
 | `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |
 | `--inst-tolerance` | `0.1` | **瞬時** 1/dt の許容 Hz 誤差（仕様どおり。20Hz では ±0.25ms の間隔予算） |
 | `--rate-tolerance` | `0.1` | **窓平均**レートの許容 Hz 誤差 |
@@ -105,7 +78,7 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--info-rate-window` | `5.0` | SensorInfo の窓平均の窓長（秒）。点群より 1 桁低レートなので既定は長め |
 | `--no-info-check` | (off) | SensorInfo を購読せずレート判定をスキップ（ドライラン用） |
 | `--expected-points` | `349960` | SDK 公称点数。合否 = 全フレームの width == この値 × aggregation_count。`0` で「全フレーム同一」のみ判定（ドライラン用） |
-| `--no-all-points` | (off) | 全点設定の自動上書きを無効化（既定は include_* 全 true・フィルタ全開） |
+| `--no-all-points` | (off) | 全点設定の自動上書きを無効化（既定は ambient・second_return 以外の include_* を true・フィルタ全開） |
 | `--warmup` | `5.0` | 起動直後の除外秒数（点群・SensorInfo とも各系列の先頭から適用） |
 | `--drop-factor` | `1.5` | 間隔 > `factor × 公称周期` をドロップ判定 |
 | `--mem-growth-threshold` | `1.0` | RSS 増加の不合格閾値（MB/min） |
@@ -115,8 +88,10 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 | `--sensor-interface` | 自動検出 | センサデータが届く NIC 名。`environment.json` の記録と NIC 統計に使用 |
 | `--perf-clock` | (off) | `perf stat` で Publisher の実効クロックを計測。**既定で無効**（下記参照） |
 | `--startup-timeout` | `30.0` | 台ごとトピック検出の待機上限（秒） |
+| `--no-launch` | (off) | Publisher を起動せず、起動済みの Publisher（またはドライランの疑似トピック）を計測。スクリプトがパラメータを生成しないため、全点設定・`--config-path` は Publisher に反映されない |
+| `--attach-pid` | なし | `--no-launch` 時のみ使用。監視する既存 Publisher の PID を指定。自動起動時は起動したプロセスを常に監視するため不要。`--no-launch` で未指定なら Publisher の CPU/メモリ・生存は監視しない |
 | `--config-path` | 版ごとの既定 YAML | 元にするパラメータファイル |
-| `--output-dir` | `scripts/stability_output/<日時>` | 出力先 |
+| `--output-dir` | `scripts/stability_test/stability_output/<日時>` | 出力先 |
 
 ## 評価項目（合否）
 
@@ -142,58 +117,23 @@ python3 scripts/stability_test.py --duration 600 --aggregation-frame-count 1
 - **プロセス生存**: duration 中に Publisher プロセスが異常終了しないこと
 - **CPU/メモリ**: RSS / CPU の線形回帰の傾きが閾値を超えて増加し続けないこと
 
-### 全点設定（`--all-points`、既定 ON）
-
-点数を公称値と照合するため、生成する試験パラメータで include_*（ROS1:
-saturated/second_return/invalid/noise/blocked/retro/retro_weak/ambient、ROS2 は宣言済み
-キーのみ）を全 true、min/max altitude・azimuth を ±90、min_distance 0、max_distance 1000
-に上書きします。**注意**: ドライバには設定で無効化できないハードコードの 500m フィルタ
-（`publisher_nodelet.cpp` の `distance_squared >= 500*500`）があるため、公称値との厳密一致が
-成立するかは初回実測で確認してください。一定のオフセットが出る場合は、その実測定数を
-`--expected-points` に指定して運用します。
-
-### 環境スナップショット `environment.json`
-
-Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが
-結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
-
-- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
-  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
-- `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
-- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
-  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
-  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
-  `d` は後述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
-- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
-  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
-- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
-  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
-- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
-  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
-  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
-  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
-- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
-- `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
-  **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
-- `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
-  `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
-- `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
-- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
-  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
-  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
-  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
-  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
-  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
-  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
-  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
-  `<segment_size>` で変更する
-- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
-
 `udp_rcvbuf_err` と `nic_drop` は記録のみで、合否には含めていません（妥当な閾値をまだ
 持たないため）。レポートには情報行として増分が出ます。`udp_rcvbuf_err` は
 `/proc/net/snmp` の `Udp: RcvbufErrors`、すなわち**ホスト全体・全 UDP ソケットの合計（IPv4 のみ）**
 である点に注意してください。特定のソケットに帰属させたいときは `environment.json` の
 `sockets[].drops` を使います。
+
+### 全点設定（既定 ON、`--no-all-points` で無効化）
+
+点数を公称値と照合するため、生成する試験パラメータで include_*
+（saturated/invalid/noise/blocked/retro/retro_weak）を true、min/max altitude・azimuth を
+±90、min_distance 0、max_distance 1000 に上書きします（ROS1・ROS2 共通）。
+
+`include_second_return_points` と `include_ambient_points` は false に固定します。他の
+include_* は SDK が出力した点を絞り込むだけですが、この 2 つは SDK の制御フラグ
+（`PARSE_TOF`→`PARSE_AMBIENT`、`RETURN_FIRST`→`RETURN_BOTH`）を切り替え、SDK が出す点
+そのものを変えるためです。試験対象は通常の TOF・ファーストリターン経路で、
+`--expected-points` の公称値もこの経路の値です。
 
 ### レート/ドロップの 2 つの基準（arrival と stamp）
 
@@ -207,6 +147,8 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
   正常だったか」の切り分けに使う。
 
 ## 出力
+
+### ファイル出力
 
 `--output-dir` に以下が生成されます。
 
@@ -232,16 +174,18 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
   **プロセスに帰属した実効クロック**。スレッドがコアを渡り歩いても正しく積算される。
   `perf_event_paranoid` が高いと取得できず、その理由が `summary.json` に記録される。
 
-  **既定で無効な理由**: 本スクリプトの計測はすべて `/proc`・`/sys` の読み取りで被試験プロセスに
-  触れませんが、`perf stat -p` だけは例外で per-task イベントを対象プロセスに取り付けます。
-  サンプリング割り込みは発生しない（カウンティングモード）ものの、対象のコンテキストスイッチ毎に
-  カウンタの退避/復元が入り、さらに**対象が生成する全スレッドにイベントが複製されます**。
-  ROS2 ドライバは publish 毎にスレッドを生成する（毎秒 10 個）ため、この点で不利な形です。
-  オーバーヘッドは 1% を大きく下回ると見積もられますが未実測であり、publish が 1 メッセージ
-  あたりの予算ぎりぎりで動いている状況では計測行為が現象を変え得ます。必要なときだけ
-  明示的に有効化してください。被試験プロセスに一切触れない代替として `turbostat` の
-  per-core `Bzy_MHz`（要 root）があり、マシンがほぼアイドルで Publisher が支配的な負荷なら
-  良い近似になります
+  > **注意：`--perf-clock` は必要なときだけ有効化してください（既定で無効）**
+  >
+  > 本スクリプトの計測はすべて `/proc`・`/sys` の読み取りで被試験プロセスに
+  > 触れませんが、`perf stat -p` だけは例外で per-task イベントを対象プロセスに取り付けます。
+  > サンプリング割り込みは発生しない（カウンティングモード）ものの、対象のコンテキストスイッチ毎に
+  > カウンタの退避/復元が入り、さらに**対象が生成する全スレッドにイベントが複製されます**。
+  > ROS2 ドライバは publish 毎にスレッドを生成する（毎秒 10 個）ため、この点で不利な形です。
+  > オーバーヘッドは 1% を大きく下回ると見積もられますが未実測であり、publish が 1 メッセージ
+  > あたりの予算ぎりぎりで動いている状況では計測行為が現象を変え得ます。
+  >
+  > 被試験プロセスに一切触れない代替として `turbostat` の per-core `Bzy_MHz`（要 root）があり、
+  > マシンがほぼアイドルで Publisher が支配的な負荷なら良い近似になります。
 - `system.png` … マシン CPU・ホットコア周波数・温度・NIC 受信の経時変化。
   点群が束になって届いた区間を網掛けで重ねてあり、配信が乱れている間もマシン側が
   平坦かどうかを一目で確認できる
@@ -254,8 +198,119 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
 - `memory.png` … Publisher RSS メモリの経時変化（増加傾向の回帰直線つき）
 - `params_ros1.yaml` / `params_ros2.yaml` … 実際に使用した生成パラメータ
 
-終了コード: 全合格 `0` / いずれか不合格 `1` / 前提未達（台数不足・プローブ未ビルド・
-プローブ異常終了等）`2`。
+### 環境スナップショット `environment.json` について
+
+Publisher 起動直後・計測開始前に一度だけ収集します。**ドライバのパラメータには現れないが結果を左右する設定**を、測定値と同じディレクトリに残すのが目的です。
+
+- `host` … ホスト名、カーネル、**カーネル起動パラメータ**（`isolcpus`/`nohz_full`/`mitigations` は
+  レイテンシに直結）、OS ディストリビューション、**マシンのベンダー・製品名・BIOS**（DMI）、CPU
+- `sysctl` … `net.core.{r,w}mem_{max,default}`、`optmem_max`、`netdev_max_backlog`、`net.ipv4.udp_mem`
+- `sockets` … **Publisher と購読側が実際に得たソケットバッファ**（`ss -ulmn` の `rb`/`tb`）と、
+  **ソケットごとの溢れ回数**（skmem の `d`）。カーネルはソケット生成時の `*mem_default` を
+  焼き込むため、sysctl の現在値ではなくこちらが実効値。送信側だけでなく**受信側も記録**する。
+  `d` は先述の `udp_rcvbuf_err`（ホスト全体の合計）と違い、**どのソケットが落としたかを特定できる**
+- `topic_qos` … 各トピックの**publisher 側と subscriber 側の QoS**（reliability / durability /
+  history / depth / liveliness）。両者の食い違いは配信の乱れの典型的な原因なので片側では足りない
+- `rmw_loaded` … Publisher が実際にロードしている `librmw_*.so`。`RMW_IMPLEMENTATION` は未設定で
+  ディストロ既定が使われることが多く、環境変数だけでは実体を特定できない
+- `nic` … MTU、**ドライバ名/バージョン/ファームウェア**、**PHY リンク速度・Duplex・
+  オートネゴシエーション**、ポート種別、**割り込みコアレシング**（`rx-usecs` 等）、
+  **オフロード設定**（63 項目）、リングバッファ。コアレシングと GRO/LRO は、カーネルが
+  パケットの束をいつ上位へ渡すかを決めるため、定常的なセンサ流を不均一な流れに変え得る
+- `firewall` … ufw/firewalld/nftables のサービス状態と、ロード済み netfilter モジュール
+- `min_send_buffer_bytes` / `message_per_send_buffer` … 1 メッセージが送信バッファの何倍かを算出。
+  **この値が 1 を大きく超えていると、publish のたびにカーネルの送出待ちが発生する**
+- `cpu_scaling` … governor / driver / EPP / intel_pstate の status・no_turbo・min_perf_pct。
+  `intel_pstate` では `powersave` でもターボまで上がるため、governor 名だけでは判断できない
+- `ros` … `RMW_IMPLEMENTATION`、DDS プロファイル、`ROS_DOMAIN_ID` など
+- `dds_shm_segments` / `dds_shm_segment_bytes` / `message_per_shm_segment` … Fast DDS の
+  共有メモリセグメントとサイズ、および 1 メッセージがセグメントの何倍か（ポートキュー
+  `fastrtps_port*` は除いた参加者セグメントが基準）。**Publisher と購読側が同一ホストにいる場合、
+  点群は UDP を一切通らず共有メモリだけを通る**ため、実際にメッセージが通り抜ける必要があるのは
+  送信バッファではなくこのセグメント。Fast DDS の既定は約 512 KB（実測 549,408 B）で、
+  数十 MB の点群はセグメントに収まらず RTPS フラグメントに分割されるため、
+  **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
+  セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
+  `<segment_size>` で変更する
+- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
+
+### 終了コード
+
+- 全合格 `0`
+- いずれか不合格 `1`
+- 前提未達（台数不足・Publisher 起動失敗・プローブ未ビルド・プローブ異常終了等）`2`
+
+> **注意：終了コード `1` にはスクリプト自体の異常終了も含まれる可能性があります**
+>
+> 想定外の例外（roscore の起動失敗、`rosparam load` の失敗など）でスクリプトが止まった場合も、
+> Python の仕様により終了コードは `1` になります。不合格と区別するには、最後に
+> `Output written to ...` が表示されているか、標準エラーに Python のトレースバックが
+> 出ていないかを確認してください。
+
+## 計測アーキテクチャ
+
+計測は 2 層に分かれています。
+
+```mermaid
+flowchart TB
+    SENSOR["Cepton センサ（台ごと）"] --> PUB["Publisher<br/>(ドライバ/SDK・被試験対象 DUT)"]
+
+    PUB -- "点群: 台ごとのトピック<br/>349,960点×32B×20Hz×台数" --> DPIN[/"点群トピック<br/>/cepton3/points_sn_〈SN〉<br/>(ROS2: /serial_〈SN〉)"/]
+    PUB -- "SensorInfo: 1トピックを全台共有<br/>数百B・公称2Hz" --> CPIN[/"SensorInfoトピック<br/>/cepton3/sensor_information<br/>(ROS2: /cepton_info)"/]
+
+    subgraph DP["データプレーン（C++・全台を1プロセスで購読）"]
+        DPIN --> PR["stability_probe<br/>到着時刻・header.stamp・width を記録"]
+        PR --> CSV[("sensor_〈SN〉.csv")]
+    end
+
+    subgraph CP["コントロールプレーン（Python）"]
+        CPIN -- "直接購読<br/>(serial_numberで台ごとに振分け)" --> ST["stability_test.py"]
+        ST --> REPORT[("summary.json<br/>framerate.png 等")]
+    end
+
+    ST -- "起動" --> PUB
+    ST -- "起動" --> PR
+    ST -. "/proc でCPU・RSSを監視" .-> PUB
+    ST -. "/proc でCPU・RSSを監視" .-> PR
+    CSV -- "計測終了後に読込み評価" --> ST
+```
+*四角＝プロセス/実体、平行四辺形＝ROS トピック、円柱＝ファイル。実線＝データ/制御フロー、点線＝リソース監視。点群は帯域が太いため C++ プローブが専用に受け、SensorInfo は軽いので Python が直接購読する。*
+
+- **データプレーン = C++ 計測ノード `stability_probe`**（`tools/stability_probe_ros1|ros2`）。
+  全センサの点群トピックを1プロセスで購読し、到着時刻・`header.stamp`・`width` をトピック（台）別 CSV に逐次記録するだけのROSノード。スクリプト本体とは独立したプロセスとして起動。中身は~100行程度であり軽量。Cepton SDK 非依存。
+- **コントロールプレーン = Pythonスクリプト (`stability_test.py`)**。
+  `CeptonPublisher`/`stability_probe`の起動、  `/proc` によるリソース監視、CSV の読み込み、グラフ・レポート生成。加えて `SensorInfo`の購読。
+
+>計測用ノードをC++で作成した理由：4台同時接続環境ではトピックのデータレートが 349,960 点 × 32 B × 20 Hz × 4 台 ≈ 900 MB/s（7.2 Gbps）に達します。このデータ量は Python の GIL による制約下では追従できません。また、RMWやQoS設定にもよりますが、サブスクライバー側が遅れると逆圧で **Publisher の送信キューが詰まり、RSS増加を引き起こします。C++製の`stability_probe`なら ~900 MB/s は 1 コアの数%で、計測がPublisherに干渉しにくくなっています。プローブ自身の CPU/RSS もレポートに併記され、計測が追従できていたことを確認できます。
+
+### 起動シーケンス
+
+スクリプトは次の順に処理します。途中で前提を満たせなかった場合は終了コード `2` で止まります。
+
+1. （ROS1 のみ）roscore が起動していなければ起動
+2. 試験パラメータを生成して Publisher を起動（`--no-launch` 時は省略）。ドライバのパッケージが
+   見つからない、または起動直後に終了していれば `2`
+3. Publisher の CPU/RSS・マシン全体の監視を開始
+4. 点群トピックが `--expected-sensors` 台分そろうまで最大 `--startup-timeout` 秒待機。
+   そろわない、または待機中に Publisher が終了すれば `2`
+5. SensorInfo の購読を開始（`--no-info-check` 時は省略）。メッセージ型を読み込めなければ `2`
+6. プローブを起動（`--rate-method inproc` 時は Python で点群を購読）。プローブ未ビルドなら `2`
+7. 環境スナップショット `environment.json` を収集
+8.  `--duration` 秒間計測。Publisher が異常終了すると計測を打ち切り、プロセス生存が
+   不合格（`1`）。プローブが異常終了すると `2`
+9. プローブ → Publisher の順に停止（プローブの CSV を確定させるため先に止める）
+10. CSV を読み込んで評価し、`summary.json`・CSV・グラフを出力してレポートを表示
+
+各系列の記録は手順 8 より前から始まるため、実際の記録期間は系列ごとに異なります（終了はいずれも手順 9）。
+
+| 系列 | 記録開始 |
+|---|---|
+| Publisher の CPU/RSS・マシン全体・プロセス内部 | 手順 3（トピック待機の時間も含む） |
+| SensorInfo | 手順 5 |
+| 点群 | 手順 6 |
+
+`--warmup` の除外区間も各系列の先頭から数えます。点群・SensorInfo は最初の受信から、
+Publisher の CPU/RSS は Publisher の起動からです。
 
 ## 高スループット時の注意（環境側）
 
@@ -316,7 +371,7 @@ SensorInfo は流れないので `--no-info-check` を付けます（付けな�
 # 別ターミナルで roscore を起動後
 rostopic pub -r 20 /cepton3/points_sn_1 sensor_msgs/PointCloud2 '{width: 100, height: 1}'
 # （複数台分はそれぞれ別トピック名で起動）
-python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
+python3 scripts/stability_test/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
   --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --rate-method inproc \
   --no-info-check
 ```
@@ -324,7 +379,7 @@ python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1
 ### ROS2
 ```bash
 ros2 topic pub -r 20 /serial_1 sensor_msgs/msg/PointCloud2 '{width: 100, height: 1}'
-python3 scripts/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
+python3 scripts/stability_test/stability_test.py --no-launch --duration 15 --expected-sensors 1 \
   --expected-points 100 --inst-tolerance 3 --rate-tolerance 3 --no-info-check
 ```
 
