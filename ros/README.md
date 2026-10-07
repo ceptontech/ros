@@ -142,7 +142,9 @@ Contains the following fields per point:
 
 **WITH_TS_CH_F Fields**:
 
-- **relative_timestamp**: Relative timestamp within the frame
+- **relative_timestamp** (`TIMESTAMP_MODE=RELATIVE`): Legacy SDK packet interval; it is populated only for channel 0 points.
+- **timestamp** (`TIMESTAMP_MODE=FRAME_OFFSET`): Timestamp of every point as an offset in microseconds from the frame-header timestamp.
+- **timestamp** (`TIMESTAMP_MODE=ABSOLUTE`): Timestamp of every point in the sensor timestamp domain, in microseconds.
 - **channel_id**: Sensor channel identifier
 - **flags**: Point quality flags
 - **valid**: Boolean indicating if point has valid return
@@ -185,6 +187,9 @@ The nodelet automatically converts from Cepton's coordinate system to ROS standa
 
 - **`-DWITH_TS_CH_F=ON`**: Enable timestamp, channel, and flag fields
 - **`-DWITH_POLAR=ON`**: Enable polar coordinate fields (azimuth, elevation)
+- **`-DTIMESTAMP_MODE=RELATIVE`**: Preserve the legacy per-packet relative timestamp (default)
+- **`-DTIMESTAMP_MODE=FRAME_OFFSET`**: Give every point a frame-header-relative timestamp
+- **`-DTIMESTAMP_MODE=ABSOLUTE`**: Give every point a sensor-domain timestamp
 
 ### Build Commands
 
@@ -203,6 +208,19 @@ popd
 # Build (standard build)
 pushd catkin_ws
 catkin_make
+```
+
+To select a timestamp representation, set `TIMESTAMP_MODE` while timestamp fields are enabled:
+
+```bash
+# Legacy behavior: per-packet timestamp delta on channel 0 only (default)
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=RELATIVE
+
+# Every point: offset from the frame-header timestamp
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=FRAME_OFFSET
+
+# Every point: timestamp in the sensor timestamp domain
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=ABSOLUTE
 ```
 
 > Important: Building With Reduced Message Size

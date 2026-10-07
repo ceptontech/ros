@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <nodelet/nodelet.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -8,7 +10,15 @@
 #include "cepton_sdk3.h"
 
 #ifdef WITH_TS_CH_F
-#pragma message("✅ timestamp-channel-flag fields are enabled")
+#if defined(CEPTON_ROS_TIMESTAMP_MODE_RELATIVE)
+#pragma message("✅ relative point timestamps, channel, and flag fields are enabled")
+#elif defined(CEPTON_ROS_TIMESTAMP_MODE_FRAME_OFFSET)
+#pragma message("✅ frame-offset point timestamps, channel, and flag fields are enabled")
+#elif defined(CEPTON_ROS_TIMESTAMP_MODE_ABSOLUTE)
+#pragma message("✅ absolute point timestamps, channel, and flag fields are enabled")
+#else
+#error "WITH_TS_CH_F requires a CEPTON_ROS_TIMESTAMP_MODE_* compile definition"
+#endif
 #endif
 
 #ifdef WITH_POLAR
@@ -25,7 +35,11 @@ struct Point
   float z;
   float intensity;
 #ifdef WITH_TS_CH_F
+#ifdef CEPTON_ROS_TIMESTAMP_MODE_RELATIVE
   uint16_t relative_timestamp;
+#else
+  int64_t timestamp;
+#endif
   uint16_t flags;
   uint16_t channel_id;
   uint16_t valid;
@@ -47,7 +61,11 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
     (float, z, z)
     (float, intensity, intensity)
     #ifdef WITH_TS_CH_F
+    #ifdef CEPTON_ROS_TIMESTAMP_MODE_RELATIVE
     (std::uint16_t, relative_timestamp, relative_timestamp)
+    #else
+    (std::int64_t, timestamp, timestamp)
+    #endif
     (std::uint16_t, flags, flags)
     (std::uint16_t, channel_id, channel_id)
     (std::uint16_t, valid, valid)
