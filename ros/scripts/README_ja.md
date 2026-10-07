@@ -91,3 +91,34 @@ python3 capture_10frames_grayimage_ros1.py \
 ## 注意事項
 
 - `NaN` を含む点も CSV に出力されます。
+
+## タイムスタンプモードの実機テスト
+
+`test_timestamp_mode_ros1.sh` は、指定したタイムスタンプモードでビルドし、実機から 1 フレームを CSV に保存してから検証します。`--workspace` には、当リポジトリを `src` 配下に配置またはシンボリックリンクした catkin workspace を指定します。
+
+```bash
+bash scripts/test_timestamp_mode_ros1.sh \
+  --workspace ~/catkin_ws \
+  --mode frame_offset \
+  --config /path/to/sensor_params.yaml \
+  --min-max-offset-us 75000
+```
+
+`frame_offset` の `--min-max-offset-us 75000` は、10 Hz 製品の 100 ms フレームで 16-bit の 65,535 µs を超える offset を正しく扱えることを確認する例です。
+
+結果は workspace の `timestamp_test_results/` に保存されます。
+
+- `frame.csv`: `--include-header` 付きの PointCloud2 CSV
+- `report.json`: 検証結果と timestamp 統計
+- `roscore.log`、`manager.log`、`publisher.log`: 実機接続時のログ
+
+CSV 取得済みの場合は、ROS や実機を使わずに検証だけを再実行できます。
+
+```bash
+python3 scripts/verify_timestamp_csv.py \
+  --mode frame_offset \
+  --input timestamp_test_results/frame_offset_*/frame.csv \
+  --min-max-offset-us 75000
+```
+
+利用できるモードは `relative`、`frame_offset`、`absolute` です。`absolute` は Unix time ではなく、現時点ではセンサー時刻基準で検証します。
