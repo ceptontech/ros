@@ -134,8 +134,8 @@ else
 fi
 publisher_pid=$!
 
-csv_path="$output_dir/frame.csv"
-report_path="$output_dir/report.json"
+csv_path="$output_dir/pointcloud_${verify_mode}.csv"
+report_path="$output_dir/verification_${verify_mode}.json"
 echo "Capturing one frame from $topic"
 python3 "$capture_script" \
   --topic "$topic" \

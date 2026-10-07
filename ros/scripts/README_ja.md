@@ -108,8 +108,8 @@ bash scripts/test_timestamp_mode_ros1.sh \
 
 結果は workspace の `timestamp_test_results/` に保存されます。
 
-- `frame.csv`: `--include-header` 付きの PointCloud2 CSV
-- `report.json`: 検証結果と timestamp 統計
+- `pointcloud_<mode>.csv`: `--include-header` 付きの PointCloud2 CSV
+- `verification_<mode>.json`: 検証結果と timestamp 統計
 - `roscore.log`、`manager.log`、`publisher.log`: 実機接続時のログ
 
 CSV 取得済みの場合は、ROS や実機を使わずに検証だけを再実行できます。
@@ -117,7 +117,7 @@ CSV 取得済みの場合は、ROS や実機を使わずに検証だけを再実
 ```bash
 python3 scripts/verify_timestamp_csv.py \
   --mode frame_offset \
-  --input timestamp_test_results/frame_offset_*/frame.csv \
+  --input timestamp_test_results/frame_offset_*/pointcloud_frame_offset.csv \
   --min-max-offset-us 75000
 ```
 
