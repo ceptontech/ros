@@ -38,7 +38,8 @@ struct Point
 #ifdef CEPTON_ROS_TIMESTAMP_MODE_RELATIVE
   uint16_t relative_timestamp;
 #else
-  int64_t timestamp;
+  // Integer-valued microseconds transported as FLOAT64 for ROS1/PCL PointCloud2 compatibility.
+  double timestamp;
 #endif
   uint16_t flags;
   uint16_t channel_id;
@@ -64,7 +65,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(cepton_ros::Point,
     #ifdef CEPTON_ROS_TIMESTAMP_MODE_RELATIVE
     (std::uint16_t, relative_timestamp, relative_timestamp)
     #else
-    (std::int64_t, timestamp, timestamp)
+    (double, timestamp, timestamp)
     #endif
     (std::uint16_t, flags, flags)
     (std::uint16_t, channel_id, channel_id)

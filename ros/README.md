@@ -143,8 +143,8 @@ Contains the following fields per point:
 **WITH_TS_CH_F Fields**:
 
 - **relative_timestamp** (`TIMESTAMP_MODE=RELATIVE`): Legacy SDK packet interval; it is populated only for channel 0 points.
-- **timestamp** (`TIMESTAMP_MODE=FRAME_OFFSET`): Timestamp of every point as an offset in microseconds from the frame-header timestamp.
-- **timestamp** (`TIMESTAMP_MODE=ABSOLUTE`): Timestamp of every point in the sensor timestamp domain, in microseconds.
+- **timestamp** (`TIMESTAMP_MODE=FRAME_OFFSET`): `FLOAT64` timestamp of every point as an offset in microseconds from the frame-header timestamp. The value is an integer-valued microsecond count.
+- **timestamp** (`TIMESTAMP_MODE=ABSOLUTE`): `FLOAT64` timestamp of every point in the sensor timestamp domain, in microseconds. The value is an integer-valued microsecond count.
 - **channel_id**: Sensor channel identifier
 - **flags**: Point quality flags
 - **valid**: Boolean indicating if point has valid return

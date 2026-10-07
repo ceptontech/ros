@@ -406,7 +406,7 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
   // The SDK supplies a timestamp delta only for channel 0, which is the first
   // point of each packet.  The first packet in a frame is the frame-header
   // timestamp, so its delta belongs to the previous frame and is ignored.
-  int64_t point_timestamp_offset = start_timestamp - static_cast<int64_t>(cloud.header.stamp);
+  double point_timestamp_offset = static_cast<double>(start_timestamp) - static_cast<double>(cloud.header.stamp);
   bool first_packet = true;
 #endif
 
@@ -422,7 +422,7 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
       if (first_packet)
         first_packet = false;
       else
-        point_timestamp_offset += p.relative_timestamp;
+        point_timestamp_offset += static_cast<double>(p.relative_timestamp);
     }
 #endif
 
@@ -469,7 +469,7 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
 #elif defined(CEPTON_ROS_TIMESTAMP_MODE_FRAME_OFFSET)
     cp.timestamp = point_timestamp_offset;
 #elif defined(CEPTON_ROS_TIMESTAMP_MODE_ABSOLUTE)
-    cp.timestamp = static_cast<int64_t>(cloud.header.stamp) + point_timestamp_offset;
+    cp.timestamp = static_cast<double>(cloud.header.stamp) + point_timestamp_offset;
 #endif
     cp.channel_id = p.channel_id;
     cp.flags = p.flags;
