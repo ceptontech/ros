@@ -218,6 +218,7 @@ ros2 run cepton_publisher cepton_publisher_node --ros-args --params-file /path/t
 - **Timeout Action**: Publishes `CeptonSensorStatus` message with `SENSOR_TIMED_OUT` status
 
 ## Note
+### Packet Loss
 In particular, when you connect multiple lidar units, the data traffic becomes so massive 
 that packet loss often occurs.
 
@@ -229,3 +230,12 @@ sudo sysctl -w net.core.rmem_default=536870912
 sudo sysctl -w net.core.netdev_max_backlog=10000
 ```
 The above is just one example. Please adjust the numbers as appropriate.
+
+### Unstable Frame Rate
+If the frame rate is unstable, try using [fastdds.xml](fastdds.xml).
+```bash
+# For Fast DDS 2
+export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/ros/ros2/fastdds.xml
+# For Fast DDS 3
+export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/ros/ros2/fastdds.xml
+```
