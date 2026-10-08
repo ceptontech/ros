@@ -94,7 +94,7 @@ python3 capture_10frames_grayimage_ros1.py \
 
 ## タイムスタンプモードの実機テスト
 
-`test_timestamp_mode_ros1.sh` は、指定したタイムスタンプモードでビルドし、実機から 1 フレームを CSV に保存してから検証します。`--workspace` には、当リポジトリを `src` 配下に配置またはシンボリックリンクした catkin workspace を指定します。
+`test_timestamp_mode_ros1.sh` は、PTP を無効（`WITH_PTP=OFF`）にした指定タイムスタンプモードでビルドし、実機から 1 フレームを CSV に保存してから検証します。`--workspace` には、当リポジトリを `src` 配下に配置またはシンボリックリンクした catkin workspace を指定します。
 
 ```bash
 bash scripts/test_timestamp_mode_ros1.sh \
@@ -111,6 +111,44 @@ bash scripts/test_timestamp_mode_ros1.sh \
 - `pointcloud_<mode>.csv`: `--include-header` 付きの PointCloud2 CSV
 - `verification_<mode>.json`: 検証結果と timestamp 統計
 - `roscore.log`、`manager.log`、`publisher.log`: 実機接続時のログ
+
+### PTP 有効時のタイムスタンプモード別 1 フレーム取得
+
+#### `ptp4l` の起動
+
+テストを起動する前に、センサーと接続している NIC で `ptp4l` を起動したままにします。`enp3s0` は実際の NIC 名に置き換えてください。
+
+```bash
+sudo ptp4l -i enp3s0 -m
+```
+
+環境固有の設定ファイルを使う場合は `-f` を追加します。
+
+```bash
+sudo ptp4l -i enp3s0 -f /path/to/ptp4l.conf -m
+```
+
+`-m` は同期状態を標準出力へ表示します。PTP Grandmaster が到達可能で、同期が完了してからテストを開始してください。スクリプトはセンサーの `time_sync_offset` が非ゼロになるまで待機せず、値が `0` の時点で失敗します。
+
+次の3本は、PTP を有効（`WITH_PTP=ON`）にして各タイムスタンプモードでビルドしてから1フレームを CSV に保存します。CSV内容の検証は行いません。すべて `--workspace` が必須で、必要に応じて `--config`、`--topic`、`--timeout`、`--output-dir` を渡せます。
+
+PointCloud の取得前に `/cepton3/sensor_information`（INFZ 由来）から `time_sync_offset` を取得します。値が `0` の場合は CSV を取得せず、`ptp4l を起動してください` と表示して失敗します。必要なら `--info-topic` で確認対象の topic を変更できます。
+
+| script | `TIMESTAMP_MODE` | `WITH_PTP` |
+| --- | --- | --- |
+| `capture_relative_ptp_on_ros1.sh` | `RELATIVE` | `ON` |
+| `capture_frame_offset_ptp_on_ros1.sh` | `FRAME_OFFSET` | `ON` |
+| `capture_absolute_ptp_on_ros1.sh` | `ABSOLUTE` | `ON` |
+
+例:
+
+```bash
+bash scripts/capture_absolute_ptp_on_ros1.sh \
+  --workspace ~/catkin_ws \
+  --config /path/to/sensor_params.yaml
+```
+
+出力先の CSV 名には組合せが含まれます。たとえば `ABSOLUTE` と PTP 有効では `pointcloud_absolute_ptp_on.csv` です。
 
 CSV 取得済みの場合は、ROS や実機を使わずに検証だけを再実行できます。
 
