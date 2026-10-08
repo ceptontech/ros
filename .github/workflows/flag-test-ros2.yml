@@ -1,4 +1,4 @@
-name: flag-test
+name: Flag test (ROS2)
 
 on:
   pull_request:
@@ -50,7 +50,6 @@ jobs:
 
             python3 scripts/flag_test/count_points_ros2.py \
               --timeout 120 \
-              --target-stamp 80.557132000 \
               > /tmp/cepton_count_points.out 2>&1 &
             local subscriber_pid=$!
             sleep 1
