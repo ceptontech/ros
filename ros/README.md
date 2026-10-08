@@ -187,6 +187,7 @@ The nodelet automatically converts from Cepton's coordinate system to ROS standa
 
 - **`-DWITH_TS_CH_F=ON`**: Enable timestamp, channel, and flag fields
 - **`-DWITH_POLAR=ON`**: Enable polar coordinate fields (azimuth, elevation)
+- **`-DWITH_PTP=ON`**: Apply each sensor's `time_sync_offset` to the PointCloud2 frame-header timestamp and `ABSOLUTE` point timestamps (default: `OFF`)
 - **`-DTIMESTAMP_MODE=RELATIVE`**: Preserve the legacy per-packet relative timestamp (default)
 - **`-DTIMESTAMP_MODE=FRAME_OFFSET`**: Give every point a frame-header-relative timestamp
 - **`-DTIMESTAMP_MODE=ABSOLUTE`**: Give every point a sensor-domain timestamp
@@ -221,7 +222,12 @@ catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=FRAME_OFFSET
 
 # Every point: timestamp in the sensor timestamp domain
 catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=ABSOLUTE
+
+# Build with PTP time-synchronization support
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=ABSOLUTE -DWITH_PTP=ON
 ```
+
+When `WITH_PTP=ON`, `time_sync_offset` is the sensor boot Unix epoch in microseconds after PTP synchronization (and zero before synchronization). It is added once to the sensor uptime timestamp. PCL stores `cloud.header.stamp` in microseconds and `pcl_ros` converts it to the nanosecond-based ROS `Header` timestamp during PointCloud2 publishing; therefore the offset is not multiplied by 1,000 in this driver.
 
 > Important: Building With Reduced Message Size
 > If you are using Vista Ultra or other sensor with very high data rate, there are build flags

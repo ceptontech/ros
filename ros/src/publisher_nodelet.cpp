@@ -1,5 +1,7 @@
 #include "publisher_nodelet.hpp"
 
+#include <cepton_ros/timestamp_mode.hpp>
+
 #include <arpa/inet.h>
 #include <math.h>
 #include <netinet/in.h>
@@ -381,9 +383,10 @@ void PublisherNodelet::onInit()
   }
 }
 
-void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points,
-                        bool reset_cloud, float min_distance, float max_distance, float min_image_x, float max_image_x,
-                        float min_image_z, float max_image_z, uint16_t include_flag)
+void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, int64_t frame_start_timestamp,
+                        uint64_t header_stamp, size_t n_points, const CeptonPointEx* points, bool reset_cloud,
+                        float min_distance, float max_distance, float min_image_x, float max_image_x, float min_image_z,
+                        float max_image_z, uint16_t include_flag)
 {
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
@@ -392,7 +395,9 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
   {
     // Reset
     cloud.clear();
-    cloud.header.stamp = start_timestamp;
+    // PCL stores header stamps in microseconds. pcl_ros converts this to the
+    // nanosecond-based ROS Header stamp when publishing PointCloud2.
+    cloud.header.stamp = header_stamp;
     cloud.header.frame_id = "cepton3";
     cloud.height = 1;
     cloud.reserve(n_points);
@@ -402,12 +407,9 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cloud.reserve(cloud.points.size() + n_points);
   }
 
-#if defined(WITH_TS_CH_F) && !defined(CEPTON_ROS_TIMESTAMP_MODE_RELATIVE)
-  // The SDK supplies a timestamp delta only for channel 0, which is the first
-  // point of each packet.  The first packet in a frame is the frame-header
-  // timestamp, so its delta belongs to the previous frame and is ignored.
-  double point_timestamp_offset = static_cast<double>(start_timestamp) - static_cast<double>(cloud.header.stamp);
-  bool first_packet = true;
+#ifdef WITH_TS_CH_F
+  const auto frame_start_us = frame_start_timestamp;
+  auto timestamp_state = cepton_ros::TimestampMode::begin_packet(start_timestamp, frame_start_us);
 #endif
 
   // Add the points
@@ -416,14 +418,8 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cepton_ros::Point cp;
     auto const& p = points[i];
 
-#if defined(WITH_TS_CH_F) && !defined(CEPTON_ROS_TIMESTAMP_MODE_RELATIVE)
-    if (p.channel_id == 0)
-    {
-      if (first_packet)
-        first_packet = false;
-      else
-        point_timestamp_offset += static_cast<double>(p.relative_timestamp);
-    }
+#ifdef WITH_TS_CH_F
+    cepton_ros::TimestampMode::advance(timestamp_state, p);
 #endif
 
     // If point has flags that should not be included (specified by the
@@ -464,13 +460,7 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cp.intensity = p.reflectivity * 0.01;
 
 #ifdef WITH_TS_CH_F
-#ifdef CEPTON_ROS_TIMESTAMP_MODE_RELATIVE
-    cp.relative_timestamp = p.relative_timestamp;
-#elif defined(CEPTON_ROS_TIMESTAMP_MODE_FRAME_OFFSET)
-    cp.timestamp = point_timestamp_offset;
-#elif defined(CEPTON_ROS_TIMESTAMP_MODE_ABSOLUTE)
-    cp.timestamp = static_cast<double>(cloud.header.stamp) + point_timestamp_offset;
-#endif
+    cepton_ros::TimestampMode::assign(cp, p, timestamp_state, cloud.header.stamp);
     cp.channel_id = p.channel_id;
     cp.flags = p.flags;
     cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
@@ -523,8 +513,11 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 
     // Add the new points
     const bool reset_cloud = first || !aggregate_frames_;
-    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud, min_distance_, max_distance_,
-                       min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_);
+    const auto frame_timestamp =
+      ptp_timestamp_resolver_.begin_frame(handle, start_timestamp, reset_cloud, cloud.header.stamp);
+    extend_from_points(cloud, start_timestamp, frame_timestamp.raw_frame_start_us, frame_timestamp.header_stamp_us,
+                       n_points, points, reset_cloud, min_distance_, max_distance_, min_image_x_, max_image_x_,
+                       min_image_z_, max_image_z_, include_flag_);
   }
 
   // If not ready to publish, return
@@ -563,6 +556,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info)
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
   }
+  ptp_timestamp_resolver_.update_time_sync_offset(info->handle, info->time_sync_offset);
 
   // Create a points publisher by handle
   if (handle_points_publisher_.find(info->handle) == handle_points_publisher_.end() && output_by_handle_)

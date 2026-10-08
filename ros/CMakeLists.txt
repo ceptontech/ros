@@ -11,6 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
 option(WITH_POLAR "Compile point types with polar coordinates" ON)
 option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
+option(WITH_PTP "Compile support for PTP time synchronization" OFF)
 
 # Timestamp representation for point clouds built with WITH_TS_CH_F=ON.
 # RELATIVE preserves the legacy SDK-provided per-packet delta.  FRAME_OFFSET
@@ -120,6 +121,10 @@ foreach(name IN LISTS CEPTON_ROS_LIBRARIES)
   if (WITH_TS_CH_F)
     target_compile_definitions(${name} PUBLIC WITH_TS_CH_F)
     target_compile_definitions(${name} PUBLIC CEPTON_ROS_TIMESTAMP_MODE_${TIMESTAMP_MODE})
+  endif()
+
+  if (WITH_PTP)
+    target_compile_definitions(${name} PUBLIC WITH_PTP)
   endif()
 
 endforeach()
