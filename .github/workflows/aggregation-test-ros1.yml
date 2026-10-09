@@ -39,14 +39,6 @@ jobs:
           done
           rosparam list > /dev/null
 
-          rosrun nodelet nodelet manager __name:=cepton_manager > /tmp/cepton_manager.log 2>&1 &
-          manager_pid=$!
-          for attempt in {1..300}; do
-            rosnode list 2> /dev/null | grep -qx /cepton_manager && break
-            sleep 0.1
-          done
-          rosnode list | grep -qx /cepton_manager
-
           cleanup() {
             kill "${publisher_pid:-}" "${manager_pid:-}" "${roscore_pid:-}" 2>/dev/null || true
             wait "${publisher_pid:-}" "${manager_pid:-}" "${roscore_pid:-}" 2>/dev/null || true
@@ -57,6 +49,15 @@ jobs:
             local params_file="$1"
             local result_file="$2"
             local output
+
+            rosrun nodelet nodelet manager __name:=cepton_manager \
+              > /tmp/cepton_manager.log 2>&1 &
+            manager_pid=$!
+            for attempt in {1..300}; do
+              rosservice list 2> /dev/null | grep -qx /cepton_manager/load_nodelet && break
+              sleep 0.1
+            done
+            rosservice list | grep -qx /cepton_manager/load_nodelet
 
             python3 /app/scripts/flag_test/count_points_ros1.py \
               --timeout 120 \
@@ -78,6 +79,9 @@ jobs:
             kill "$publisher_pid" 2>/dev/null || true
             wait "$publisher_pid" 2>/dev/null || true
             unset publisher_pid
+            kill "$manager_pid" 2>/dev/null || true
+            wait "$manager_pid" 2>/dev/null || true
+            unset manager_pid
 
             if [ "$rc" -ne 0 ]; then
               echo "$output"
