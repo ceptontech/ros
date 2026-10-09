@@ -1,12 +1,12 @@
-name: Flag test (ROS2)
+name: Driver parameter test (ROS2)
 
 on:
   pull_request:
   workflow_dispatch:
 
 jobs:
-  flag-filter-counts:
-    name: Check flag filter point counts
+  driver-parameter-tests:
+    name: Check flag filters and frame aggregation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -15,7 +15,7 @@ jobs:
       - name: Build docker image
         run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
 
-      - name: Run flag filter test
+      - name: Run driver parameter tests
         run: |
           docker run --rm --network host --ipc host \
             -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA bash -euo pipefail -c '
@@ -40,13 +40,19 @@ jobs:
           set -u
 
           count_points() {
-            local params_file="$1"
+            local case_name="$1"
             local domain_id="$2"
-            local result_file="$3"
+            local parameter="$3"
+            local value="$4"
+            local result_file="$5"
             local output
+            local parameter_args=()
 
             export ROS_DOMAIN_ID="$domain_id"
-            echo "Counting points with $params_file on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
+            if [ -n "$parameter" ]; then
+              parameter_args=(-p "$parameter:=$value")
+            fi
+            echo "Counting points for $case_name on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 
             # 全フレームを同じ点数にしているが、target-stamp なしでは安定しない。
             python3 scripts/flag_test/count_points_ros2.py \
@@ -57,7 +63,8 @@ jobs:
             sleep 1
 
             ros2 run cepton_publisher cepton_publisher_node \
-              --ros-args --params-file "$params_file" > /tmp/cepton_flag_test.log 2>&1 &
+              --ros-args --params-file scripts/flag_test/params/baseline.yaml \
+              "${parameter_args[@]}" > /tmp/cepton_driver_parameter_test.log 2>&1 &
             local publisher_pid=$!
 
             set +e
@@ -72,7 +79,7 @@ jobs:
             if [ "$rc" -ne 0 ]; then
               echo "$output"
               echo "--- publisher log ---"
-              tail -80 /tmp/cepton_flag_test.log
+              tail -80 /tmp/cepton_driver_parameter_test.log
               return "$rc"
             fi
 
@@ -80,31 +87,36 @@ jobs:
             echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}" > "$result_file"
           }
 
-          count_points scripts/flag_test/params/baseline.yaml 1 /tmp/baseline.count
-          count_points scripts/flag_test/params/exclude_invalid.yaml 2 /tmp/invalid.count
-          count_points scripts/flag_test/params/exclude_noise.yaml 3 /tmp/noise.count
-          count_points scripts/flag_test/params/exclude_retro.yaml 4 /tmp/retro.count
-          count_points scripts/flag_test/params/exclude_retro_weak.yaml 5 /tmp/retro_weak.count
+          count_points baseline 1 "" "" /tmp/baseline.count
+          count_points exclude_invalid 2 include_invalid_points false /tmp/invalid.count
+          count_points exclude_noise 3 include_noise_points false /tmp/noise.count
+          count_points exclude_retro 4 include_retro_points false /tmp/retro.count
+          count_points exclude_retro_weak 5 include_retro_weak_points false /tmp/retro_weak.count
+          count_points aggregate_2 6 aggregation_frame_count 2 /tmp/aggregate_2.count
 
           baseline=$(cat /tmp/baseline.count)
           invalid=$(cat /tmp/invalid.count)
           noise=$(cat /tmp/noise.count)
           retro=$(cat /tmp/retro.count)
           retro_weak=$(cat /tmp/retro_weak.count)
+          aggregate_2=$(cat /tmp/aggregate_2.count)
 
           invalid_delta=$((baseline - invalid))
           noise_delta=$((baseline - noise))
           retro_delta=$((baseline - retro))
           retro_weak_delta=$((baseline - retro_weak))
+          aggregate_expected=$((baseline * 2))
 
           echo "baseline=$baseline"
           echo "exclude_invalid=$invalid delta=$invalid_delta expected=1"
           echo "exclude_noise=$noise delta=$noise_delta expected=2"
           echo "exclude_retro=$retro delta=$retro_delta expected=4"
           echo "exclude_retro_weak=$retro_weak delta=$retro_weak_delta expected=8"
+          echo "aggregate_2=$aggregate_2 expected=$aggregate_expected"
 
           test "$invalid_delta" -eq 1
           test "$noise_delta" -eq 2
           test "$retro_delta" -eq 4
           test "$retro_weak_delta" -eq 8
+          test "$aggregate_2" -eq "$aggregate_expected"
           '
