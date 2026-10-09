@@ -15,10 +15,15 @@ MODE_ABSOLUTE = "absolute"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Validate a PointCloud2 CSV captured by capture_1frame_ros1.py."
+        description=(
+            "Validate a PointCloud2 CSV captured by capture_1frame_ros1.py."
+        )
     )
     parser.add_argument(
-        "--input", required=True, type=Path, help="Input CSV captured with --include-header"
+        "--input",
+        required=True,
+        type=Path,
+        help="Input CSV captured with --include-header",
     )
     parser.add_argument(
         "--mode",
@@ -31,16 +36,20 @@ def parse_args():
         type=int,
         default=0,
         help=(
-            "Require the largest frame offset to be at least this many microseconds. "
+            "Require the largest frame offset to be at least this many "
+            "microseconds. "
             "Use 75000 to test a 10 Hz product."
         ),
     )
     parser.add_argument(
         "--allow-trimmed-frame",
         action="store_true",
-        help="Allow a capture whose first retained point is not at the frame start",
+        help=("Allow a capture whose first retained point is not at the "
+              "frame start"),
     )
-    parser.add_argument("--report", type=Path, help="Write the JSON result to this path")
+    parser.add_argument(
+        "--report", type=Path, help="Write the JSON result to this path"
+    )
     return parser.parse_args()
 
 
@@ -100,7 +109,9 @@ def verify_relative(rows, errors):
             channel_zero_count += 1
         elif relative_timestamp != 0:
             nonzero_non_channel_zero += 1
-        max_relative_timestamp = max(max_relative_timestamp, relative_timestamp)
+        max_relative_timestamp = max(
+            max_relative_timestamp, relative_timestamp
+        )
 
     if channel_zero_count == 0:
         add_error(errors, "no channel_id == 0 points were captured")
@@ -108,11 +119,15 @@ def verify_relative(rows, errors):
     return {
         "channel_zero_count": channel_zero_count,
         "max_relative_timestamp_us": max_relative_timestamp,
-        "nonzero_relative_timestamp_on_nonzero_channel_count": nonzero_non_channel_zero,
+        "nonzero_relative_timestamp_on_nonzero_channel_count": (
+            nonzero_non_channel_zero
+        ),
     }
 
 
-def verify_timestamped(rows, mode, min_max_offset_us, allow_trimmed_frame, errors):
+def verify_timestamped(
+    rows, mode, min_max_offset_us, allow_trimmed_frame, errors
+):
     previous_timestamp = None
     packet_timestamp = None
     channel_zero_count = 0
@@ -124,10 +139,10 @@ def verify_timestamped(rows, mode, min_max_offset_us, allow_trimmed_frame, error
     if mode == MODE_ABSOLUTE:
         first_row = rows[0]
         try:
-            header_timestamp_us = (
-                parse_int(first_row["stamp_sec"], "stamp_sec", 2) * 1_000_000
-                + parse_int(first_row["stamp_nsec"], "stamp_nsec", 2) // 1_000
-            )
+            header_timestamp_us = sum((
+                parse_int(first_row["stamp_sec"], "stamp_sec", 2) * 1_000_000,
+                parse_int(first_row["stamp_nsec"], "stamp_nsec", 2) // 1_000,
+            ))
         except ValueError as exc:
             add_error(errors, str(exc))
 
@@ -143,7 +158,10 @@ def verify_timestamped(rows, mode, min_max_offset_us, allow_trimmed_frame, error
         if previous_timestamp is not None and timestamp < previous_timestamp:
             add_error(
                 errors,
-                f"row {row_number}: timestamp regressed from {previous_timestamp} to {timestamp}",
+                (
+                    f"row {row_number}: timestamp regressed from "
+                    f"{previous_timestamp} to {timestamp}"
+                ),
             )
         previous_timestamp = timestamp
 
@@ -155,8 +173,10 @@ def verify_timestamped(rows, mode, min_max_offset_us, allow_trimmed_frame, error
             packet_mismatch_count += 1
             add_error(
                 errors,
-                f"row {row_number}: timestamp {timestamp} differs from packet timestamp "
-                f"{packet_timestamp}",
+                (
+                    f"row {row_number}: timestamp {timestamp} differs from "
+                    f"packet timestamp {packet_timestamp}"
+                ),
             )
 
     if not timestamps:
@@ -172,20 +192,30 @@ def verify_timestamped(rows, mode, min_max_offset_us, allow_trimmed_frame, error
         if header_timestamp_us is None:
             offsets = []
         else:
-            offsets = [timestamp - header_timestamp_us for timestamp in timestamps]
+            offsets = [
+                timestamp - header_timestamp_us for timestamp in timestamps
+            ]
 
     if offsets:
         if min(offsets) < 0:
-            add_error(errors, f"timestamp offset is negative ({min(offsets)} us)")
+            add_error(
+                errors, f"timestamp offset is negative ({min(offsets)} us)"
+            )
         if not allow_trimmed_frame and min(offsets) != 0:
             add_error(
                 errors,
-                f"first retained packet is not the frame start (minimum offset is {min(offsets)} us)",
+                (
+                    "first retained packet is not the frame start "
+                    f"(minimum offset is {min(offsets)} us)"
+                ),
             )
         if max(offsets) < min_max_offset_us:
             add_error(
                 errors,
-                f"maximum offset is {max(offsets)} us; expected at least {min_max_offset_us} us",
+                (
+                    f"maximum offset is {max(offsets)} us; expected at least "
+                    f"{min_max_offset_us} us"
+                ),
             )
 
     return {
@@ -218,7 +248,9 @@ def main():
 
     missing_fields = sorted(required_fields.difference(field_names))
     if missing_fields:
-        errors.append("missing required CSV fields: " + ", ".join(missing_fields))
+        errors.append(
+            "missing required CSV fields: " + ", ".join(missing_fields)
+        )
         details = {}
     elif args.mode == MODE_RELATIVE:
         details = verify_relative(rows, errors)
@@ -240,7 +272,9 @@ def main():
         "errors": errors,
         **details,
     }
-    report_text = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
+    report_text = json.dumps(
+        report, ensure_ascii=False, indent=2, sort_keys=True
+    )
     print(report_text)
 
     if args.report:

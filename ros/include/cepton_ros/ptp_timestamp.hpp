@@ -43,7 +43,7 @@ public:
 
     const auto frame_it = frame_start_timestamps_.find(handle);
     const int64_t raw_frame_start_us =
-      reset_cloud || frame_it == frame_start_timestamps_.end() ? packet_start_us : frame_it->second;
+        reset_cloud || frame_it == frame_start_timestamps_.end() ? packet_start_us : frame_it->second;
     if (reset_cloud)
       frame_start_timestamps_[handle] = raw_frame_start_us;
 
@@ -53,8 +53,7 @@ public:
              static_cast<uint64_t>(raw_frame_start_us) + static_cast<uint64_t>(time_sync_offset_us) };
 #else
     (void)handle;
-    const int64_t raw_frame_start_us =
-      reset_cloud ? packet_start_us : static_cast<int64_t>(current_header_stamp_us);
+    const int64_t raw_frame_start_us = reset_cloud ? packet_start_us : static_cast<int64_t>(current_header_stamp_us);
     return { raw_frame_start_us, static_cast<uint64_t>(raw_frame_start_us) };
 #endif
   }

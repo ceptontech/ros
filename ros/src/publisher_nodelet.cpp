@@ -514,7 +514,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
     // Add the new points
     const bool reset_cloud = first || !aggregate_frames_;
     const auto frame_timestamp =
-      ptp_timestamp_resolver_.begin_frame(handle, start_timestamp, reset_cloud, cloud.header.stamp);
+        ptp_timestamp_resolver_.begin_frame(handle, start_timestamp, reset_cloud, cloud.header.stamp);
     extend_from_points(cloud, start_timestamp, frame_timestamp.raw_frame_start_us, frame_timestamp.header_stamp_us,
                        n_points, points, reset_cloud, min_distance_, max_distance_, min_image_x_, max_image_x_,
                        min_image_z_, max_image_z_, include_flag_);
