@@ -48,8 +48,10 @@ jobs:
             export ROS_DOMAIN_ID="$domain_id"
             echo "Counting points with $params_file on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 
+            # 全フレームを同じ点数にしているが、target-stamp なしでは安定しない。
             python3 scripts/flag_test/count_points_ros2.py \
               --timeout 120 \
+              --target-stamp 80.557132000 \
               > /tmp/cepton_count_points.out 2>&1 &
             local subscriber_pid=$!
             sleep 1

@@ -58,8 +58,10 @@ jobs:
             local result_file="$2"
             local output
 
+            # 全フレームを同じ点数にしているが、target-stamp なしでは安定しない。
             python3 /app/scripts/flag_test/count_points_ros1.py \
               --timeout 120 \
+              --target-stamp 80.557132000 \
               > /tmp/cepton_count_points.out 2>&1 &
             local subscriber_pid=$!
             sleep 1
