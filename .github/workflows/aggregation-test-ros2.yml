@@ -1,0 +1,90 @@
+name: Aggregation test (ROS2)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  aggregation-count:
+    name: Check two-frame point cloud aggregation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Build Docker image
+        run: docker build . --tag ci_ros2_aggregation_test_$GITHUB_SHA -f ci/Dockerfile.ros2
+
+      - name: Run aggregation test
+        run: |
+          docker run --rm --network host --ipc host \
+            -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_aggregation_test_$GITHUB_SHA bash -euo pipefail -c '
+          cd /app
+          mkdir -p /root/Documents/Cepton
+          cp scripts/flag_test/calibration/calibration_3276808.bin /root/Documents/Cepton/
+
+          export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+          export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+          set +u
+          source /opt/ros/jazzy/setup.bash
+          set -u
+
+          colcon --log-base /tmp/cepton_log build \
+            --packages-select cepton_messages cepton_publisher \
+            --build-base /tmp/cepton_build \
+            --install-base /tmp/cepton_install \
+            --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
+
+          set +u
+          source /tmp/cepton_install/setup.bash
+          set -u
+
+          count_points() {
+            local params_file="$1"
+            local domain_id="$2"
+            local result_file="$3"
+            local output
+
+            export ROS_DOMAIN_ID="$domain_id"
+            python3 scripts/flag_test/count_points_ros2.py \
+              --timeout 120 \
+              --target-stamp 80.557132000 \
+              > /tmp/cepton_count_points.out 2>&1 &
+            local subscriber_pid=$!
+            sleep 1
+
+            ros2 run cepton_publisher cepton_publisher_node \
+              --ros-args --params-file "$params_file" > /tmp/cepton_aggregation_test.log 2>&1 &
+            local publisher_pid=$!
+
+            set +e
+            wait "$subscriber_pid"
+            local rc=$?
+            output=$(cat /tmp/cepton_count_points.out)
+            set -e
+
+            kill "$publisher_pid" 2>/dev/null || true
+            wait "$publisher_pid" 2>/dev/null || true
+
+            if [ "$rc" -ne 0 ]; then
+              echo "$output"
+              echo "--- publisher log ---"
+              tail -80 /tmp/cepton_aggregation_test.log
+              return "$rc"
+            fi
+
+            echo "$output"
+            echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}" > "$result_file"
+          }
+
+          count_points scripts/aggregation_test/ros2/baseline.yaml 21 /tmp/baseline.count
+          count_points scripts/aggregation_test/ros2/aggregate_2.yaml 22 /tmp/aggregate_2.count
+
+          baseline=$(cat /tmp/baseline.count)
+          aggregate_2=$(cat /tmp/aggregate_2.count)
+          expected=$((baseline * 2))
+
+          echo "baseline=$baseline"
+          echo "aggregate_2=$aggregate_2 expected=$expected"
+          test "$aggregate_2" -eq "$expected"
+          '

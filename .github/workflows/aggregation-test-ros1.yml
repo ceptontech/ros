@@ -1,0 +1,103 @@
+name: Aggregation test (ROS1)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  aggregation-count:
+    name: Check two-frame point cloud aggregation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Build Docker image
+        run: docker build . --tag ci_ros1_aggregation_test_$GITHUB_SHA -f ci/Dockerfile.ros1
+
+      - name: Run aggregation test
+        run: |
+          docker run --rm --network host --ipc host \
+            -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros1_aggregation_test_$GITHUB_SHA bash -euo pipefail -c '
+          source /opt/ros/noetic/setup.bash
+
+          mkdir -p /root/Documents/Cepton
+          cp /app/scripts/flag_test/calibration/calibration_3276808.bin \
+            /root/Documents/Cepton/
+
+          mkdir -p /catkin_ws/src
+          ln -s /app/ros /catkin_ws/src/cepton_ros
+          cd /catkin_ws
+          catkin_make
+          source devel/setup.bash
+
+          roscore > /tmp/roscore.log 2>&1 &
+          roscore_pid=$!
+          for attempt in {1..300}; do
+            rosparam list > /dev/null 2>&1 && break
+            sleep 0.1
+          done
+          rosparam list > /dev/null
+
+          rosrun nodelet nodelet manager __name:=cepton_manager > /tmp/cepton_manager.log 2>&1 &
+          manager_pid=$!
+          for attempt in {1..300}; do
+            rosnode list 2> /dev/null | grep -qx /cepton_manager && break
+            sleep 0.1
+          done
+          rosnode list | grep -qx /cepton_manager
+
+          cleanup() {
+            kill "${publisher_pid:-}" "${manager_pid:-}" "${roscore_pid:-}" 2>/dev/null || true
+            wait "${publisher_pid:-}" "${manager_pid:-}" "${roscore_pid:-}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          count_points() {
+            local params_file="$1"
+            local result_file="$2"
+            local output
+
+            python3 /app/scripts/flag_test/count_points_ros1.py \
+              --timeout 120 \
+              --target-stamp 80.557132000 \
+              > /tmp/cepton_count_points.out 2>&1 &
+            local subscriber_pid=$!
+            sleep 1
+
+            roslaunch cepton_ros publisher.launch config_path:="/app/$params_file" \
+              > /tmp/cepton_aggregation_test.log 2>&1 &
+            publisher_pid=$!
+
+            set +e
+            wait "$subscriber_pid"
+            local rc=$?
+            output=$(cat /tmp/cepton_count_points.out)
+            set -e
+
+            kill "$publisher_pid" 2>/dev/null || true
+            wait "$publisher_pid" 2>/dev/null || true
+            unset publisher_pid
+
+            if [ "$rc" -ne 0 ]; then
+              echo "$output"
+              echo "--- publisher log ---"
+              tail -80 /tmp/cepton_aggregation_test.log
+              return "$rc"
+            fi
+
+            echo "$output"
+            echo "$output" | awk -F= "/^POINT_COUNT=/ {print \$2}" > "$result_file"
+          }
+
+          count_points scripts/aggregation_test/ros1/baseline.yaml /tmp/baseline.count
+          count_points scripts/aggregation_test/ros1/aggregate_2.yaml /tmp/aggregate_2.count
+
+          baseline=$(cat /tmp/baseline.count)
+          aggregate_2=$(cat /tmp/aggregate_2.count)
+          expected=$((baseline * 2))
+
+          echo "baseline=$baseline"
+          echo "aggregate_2=$aggregate_2 expected=$expected"
+          test "$aggregate_2" -eq "$expected"
+          '
