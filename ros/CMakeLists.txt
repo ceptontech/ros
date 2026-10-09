@@ -11,6 +11,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
 option(WITH_POLAR "Compile point types with polar coordinates" ON)
 option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
+option(WITH_PTP "Compile support for PTP time synchronization" OFF)
+
+# Timestamp representation for point clouds built with WITH_TS_CH_F=ON.
+# RELATIVE preserves the legacy SDK-provided per-packet delta.  FRAME_OFFSET
+# and ABSOLUTE provide a timestamp for every point.
+set(TIMESTAMP_MODE "RELATIVE" CACHE STRING
+    "Point timestamp mode: RELATIVE, FRAME_OFFSET, or ABSOLUTE")
+set_property(CACHE TIMESTAMP_MODE PROPERTY STRINGS RELATIVE FRAME_OFFSET ABSOLUTE)
+string(TOUPPER "${TIMESTAMP_MODE}" TIMESTAMP_MODE)
+if (NOT TIMESTAMP_MODE STREQUAL "RELATIVE" AND
+    NOT TIMESTAMP_MODE STREQUAL "FRAME_OFFSET" AND
+    NOT TIMESTAMP_MODE STREQUAL "ABSOLUTE")
+  message(FATAL_ERROR
+    "TIMESTAMP_MODE must be RELATIVE, FRAME_OFFSET, or ABSOLUTE (got '${TIMESTAMP_MODE}')")
+endif()
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -105,6 +120,11 @@ foreach(name IN LISTS CEPTON_ROS_LIBRARIES)
   # preprocessor definition
   if (WITH_TS_CH_F)
     target_compile_definitions(${name} PUBLIC WITH_TS_CH_F)
+    target_compile_definitions(${name} PUBLIC CEPTON_ROS_TIMESTAMP_MODE_${TIMESTAMP_MODE})
+  endif()
+
+  if (WITH_PTP)
+    target_compile_definitions(${name} PUBLIC WITH_PTP)
   endif()
 
 endforeach()

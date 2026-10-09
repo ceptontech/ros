@@ -142,7 +142,9 @@ Contains the following fields per point:
 
 **WITH_TS_CH_F Fields**:
 
-- **relative_timestamp**: Relative timestamp within the frame
+- **relative_timestamp** (`TIMESTAMP_MODE=RELATIVE`): Legacy SDK packet interval; it is populated only for channel 0 points.
+- **timestamp** (`TIMESTAMP_MODE=FRAME_OFFSET`): `FLOAT64` timestamp of every point as an offset in microseconds from the frame-header timestamp. The value is an integer-valued microsecond count.
+- **timestamp** (`TIMESTAMP_MODE=ABSOLUTE`): `FLOAT64` timestamp of every point in the sensor timestamp domain, in microseconds. The value is an integer-valued microsecond count.
 - **channel_id**: Sensor channel identifier
 - **flags**: Point quality flags
 - **valid**: Boolean indicating if point has valid return
@@ -185,6 +187,10 @@ The nodelet automatically converts from Cepton's coordinate system to ROS standa
 
 - **`-DWITH_TS_CH_F=ON`**: Enable timestamp, channel, and flag fields
 - **`-DWITH_POLAR=ON`**: Enable polar coordinate fields (azimuth, elevation)
+- **`-DWITH_PTP=ON`**: Apply each sensor's `time_sync_offset` to the PointCloud2 frame-header timestamp and `ABSOLUTE` point timestamps (default: `OFF`)
+- **`-DTIMESTAMP_MODE=RELATIVE`**: Preserve the legacy per-packet relative timestamp (default)
+- **`-DTIMESTAMP_MODE=FRAME_OFFSET`**: Give every point a frame-header-relative timestamp
+- **`-DTIMESTAMP_MODE=ABSOLUTE`**: Give every point a sensor-domain timestamp
 
 ### Build Commands
 
@@ -204,6 +210,24 @@ popd
 pushd catkin_ws
 catkin_make
 ```
+
+To select a timestamp representation, set `TIMESTAMP_MODE` while timestamp fields are enabled:
+
+```bash
+# Legacy behavior: per-packet timestamp delta on channel 0 only (default)
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=RELATIVE
+
+# Every point: offset from the frame-header timestamp
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=FRAME_OFFSET
+
+# Every point: timestamp in the sensor timestamp domain
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=ABSOLUTE
+
+# Build with PTP time-synchronization support
+catkin_make -DWITH_TS_CH_F=ON -DTIMESTAMP_MODE=ABSOLUTE -DWITH_PTP=ON
+```
+
+When `WITH_PTP=ON`, `time_sync_offset` is the sensor boot Unix epoch in microseconds after PTP synchronization (and zero before synchronization). It is added once to the sensor uptime timestamp. PCL stores `cloud.header.stamp` in microseconds and `pcl_ros` converts it to the nanosecond-based ROS `Header` timestamp during PointCloud2 publishing; therefore the offset is not multiplied by 1,000 in this driver.
 
 > Important: Building With Reduced Message Size
 > If you are using Vista Ultra or other sensor with very high data rate, there are build flags

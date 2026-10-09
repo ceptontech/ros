@@ -20,6 +20,7 @@
 #include "cepton_ros/SensorInformation.h"
 #include "cepton_ros/SensorPanic.h"
 #include "cepton_ros/cepton_ros.hpp"
+#include "cepton_ros/ptp_timestamp.hpp"
 #include "cepton_sdk3.h"
 
 enum SensorStatusFlags : uint32_t
@@ -162,6 +163,8 @@ private:
 
   /** Store the handle to serial number mappings */
   SerialNumberMap handle_to_serial_number_;
+
+  PtpTimestampResolver ptp_timestamp_resolver_;
 
   bool stopping_{ false };
 };
