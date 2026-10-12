@@ -1,3 +1,4 @@
+日本語版は[こちら](README_ja.md)
 # Prerequisites
 ### Supported Platforms
 - Ubuntu 20.04 LTS `amd64`/`arm64` + ROS 2 Galactic Geochelone
