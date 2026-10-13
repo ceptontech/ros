@@ -458,19 +458,9 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     if (tan_yx < min_image_x || tan_yx > max_image_x || tan_zx < min_image_z || tan_zx > max_image_z ||
         distance_squared < min_distance_squared || distance_squared > max_distance_squared)
       continue;
-
-    // 謎の仕様
-    const bool no_return = (p.flags & CEPTON_POINT_NO_RETURN) != 0;
-    cp.x = no_return ? 0.0F : x;
-    cp.y = no_return ? 0.0F : y;
-    cp.z = no_return ? 0.0F : z;
-
-    /*
-    cp.x = p.x;
-    cp.y = p.y;
-    cp.z = p.z;
-    */
-
+    cp.x = x;
+    cp.y = y;
+    cp.z = z;
     cp.intensity = p.reflectivity * 0.01;
 
 #ifdef WITH_TS_CH_F
