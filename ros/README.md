@@ -51,6 +51,32 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 
 ### Output Configuration
 
+#### `timestamp_mode` (string, default: "legacy")
+
+| Mode | PointCloud2 output |
+| --- | --- |
+| `legacy` | Original fields and layout |
+| `relative` | Adds `timestamp` (FLOAT64 seconds) relative to the published header |
+| `absolute` | Adds `timestamp` (FLOAT64 seconds) in the PTP-corrected sensor clock |
+
+Set `timestamp_mode: relative` or `timestamp_mode: absolute` in the publisher
+configuration. All point-cloud topics use the selected mode. Invalid mode names
+fail initialization before SDK networking starts. The added field is available
+even when `WITH_TS_CH_F=OFF`; the existing UINT16 `relative_timestamp`, when
+enabled, remains the SDK's successive point delta in microseconds.
+
+Point deltas are accumulated before filtering. With `aggregate_frames: true`,
+the header retains the first frame's start time and relative point times include
+the second frame's gap. Each sensor's first positive `time_sync_offset` is cached
+independently and added to the header and absolute point times. Until then, its
+offset is zero and its sensor clock is used. Later offsets do not replace the
+cached value. Epoch-sized FLOAT64 seconds have finite precision; missing or
+clipped SDK deltas cannot be recovered.
+
+Included `NO_RETURN` points have XYZ set to zero after the existing angle and
+distance filters. Their intensity, flags and timestamps remain available;
+`include_invalid_points: false` excludes these points as before.
+
 #### `output_by_handle` (bool, default: varies)
 
 - **Description**: Enable publishing point clouds on handle-specific topics
@@ -142,7 +168,7 @@ Contains the following fields per point:
 
 **WITH_TS_CH_F Fields**:
 
-- **relative_timestamp**: Relative timestamp within the frame
+- **relative_timestamp**: SDK delta from the previous point, in microseconds (UINT16)
 - **channel_id**: Sensor channel identifier
 - **flags**: Point quality flags
 - **valid**: Boolean indicating if point has valid return

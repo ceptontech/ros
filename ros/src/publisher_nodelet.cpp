@@ -1,9 +1,11 @@
 #include "publisher_nodelet.hpp"
+#include "cepton_ros/timestamp_field.hpp"
 
 #include <arpa/inet.h>
 #include <math.h>
 #include <netinet/in.h>
 #include <pluginlib/class_list_macros.h>
+#include <pcl_conversions/pcl_conversions.h>
 
 #include <future>
 #include <iostream>
@@ -105,6 +107,10 @@ PublisherNodelet::~PublisherNodelet()
 
   ret = CeptonDeinitialize();
   check_api_error(ret, "CeptonDeinitialize");
+
+  // Publishing captures this nodelet; finish before its members are destroyed.
+  if (pub_fut_.valid())
+    pub_fut_.wait();
 }
 
 void PublisherNodelet::check_api_error(int err, char const* api)
@@ -171,6 +177,11 @@ void PublisherNodelet::onInit()
   private_node_handle_.param("expected_sensor_ips", expected_sensor_ips_, expected_sensor_ips_);
 
   private_node_handle_.param("aggregate_frames", aggregate_frames_, aggregate_frames_);
+
+  std::string timestamp_mode = "legacy";
+  private_node_handle_.param("timestamp_mode", timestamp_mode, timestamp_mode);
+  timestamp_mode_ = parse_timestamp_mode(timestamp_mode);
+  ROS_INFO("Point timestamp mode: %s", timestamp_mode.c_str());
 
   // Check for which points should be included based on params for flag bits
   {
@@ -383,7 +394,8 @@ void PublisherNodelet::onInit()
 
 void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points,
                         bool reset_cloud, float min_distance, float max_distance, float min_image_x, float max_image_x,
-                        float min_image_z, float max_image_z, uint16_t include_flag)
+                        float min_image_z, float max_image_z, uint16_t include_flag, int64_t ptp_offset,
+                        TimestampMode timestamp_mode, std::vector<double>& timestamps)
 {
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
@@ -392,21 +404,28 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
   {
     // Reset
     cloud.clear();
-    cloud.header.stamp = start_timestamp;
+    cloud.header.stamp = start_timestamp + ptp_offset;
     cloud.header.frame_id = "cepton3";
     cloud.height = 1;
     cloud.reserve(n_points);
+    timestamps.clear();
   }
   else
   {
     cloud.reserve(cloud.points.size() + n_points);
   }
 
+  PointTimestamp point_timestamp(start_timestamp, ptp_offset, static_cast<int64_t>(cloud.header.stamp));
+  if (timestamp_mode != TimestampMode::Legacy)
+    timestamps.reserve(timestamps.size() + n_points);
+
   // Add the points
   for (size_t i = 0; i < n_points; ++i)
   {
     cepton_ros::Point cp;
     auto const& p = points[i];
+    // Advance before filters so discarded points do not shorten elapsed time.
+    point_timestamp.advance(p.relative_timestamp);
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
@@ -440,9 +459,18 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
         distance_squared < min_distance_squared || distance_squared > max_distance_squared)
       continue;
 
-    cp.x = x;
-    cp.y = y;
-    cp.z = z;
+    // 謎の仕様
+    const bool no_return = (p.flags & CEPTON_POINT_NO_RETURN) != 0;
+    cp.x = no_return ? 0.0F : x;
+    cp.y = no_return ? 0.0F : y;
+    cp.z = no_return ? 0.0F : z;
+
+    /*
+    cp.x = p.x;
+    cp.y = p.y;
+    cp.z = p.z;
+    */
+
     cp.intensity = p.reflectivity * 0.01;
 
 #ifdef WITH_TS_CH_F
@@ -458,6 +486,8 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cp.elevation = elevation_rad;
 #endif
     cloud.points.push_back(cp);
+    if (timestamp_mode != TimestampMode::Legacy)
+      timestamps.push_back(point_timestamp.seconds(timestamp_mode));
   }
 
   cloud.height = 1;
@@ -469,6 +499,11 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 {
   // Buffer to build the output cloud
   static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
+  static std::unordered_map<CeptonSensorHandle, std::vector<double>> timestamps;
+
+  // The previous async publisher references these buffers. Wait before reuse.
+  if (pub_fut_.valid())
+    pub_fut_.get();
 
   // Store the parity of each cloud. This may be used for 2-frames aggregation
   static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
@@ -488,6 +523,14 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 
   const auto first = cloud_parity[handle] == 1;
 
+  int64_t ptp_offset = 0;
+  {
+    std::lock_guard<std::mutex> lock(ptp_offsets_mutex_);
+    const auto offset = ptp_offsets_.find(handle);
+    if (offset != ptp_offsets_.end())
+      ptp_offset = offset->second;
+  }
+
   // Prep the cloud
   {
     // Make sure there is an allocated buffer
@@ -500,7 +543,8 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
     // Add the new points
     const bool reset_cloud = first || !aggregate_frames_;
     extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud, min_distance_, max_distance_,
-                       min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_);
+                       min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_, ptp_offset,
+                       timestamp_mode_, timestamps[handle]);
   }
 
   // If not ready to publish, return
@@ -511,13 +555,22 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 
   // Publish the point cloud
   {
-    // If the last publish is still pending, wait for it to finish
-    if (pub_fut_.valid())
-      pub_fut_.wait();
-
     // Launch a new process to do the publishing
-    pub_fut_ = std::async(std::launch::async, [this, handle, start_timestamp]() {
+    pub_fut_ = std::async(std::launch::async, [this, handle]() {
       auto const& cloud = clouds[handle];
+
+      if (timestamp_mode_ != TimestampMode::Legacy)
+      {
+        sensor_msgs::PointCloud2 msg;
+        pcl::toROSMsg(cloud, msg);
+        append_timestamp_field(msg, timestamps[handle]);
+        points_publisher_.publish(msg);
+        if (handle_points_publisher_.count(handle) && output_by_handle_)
+          handle_points_publisher_[handle].publish(msg);
+        if (serial_points_publisher_.count(handle) && output_by_sn_)
+          serial_points_publisher_[handle].publish(msg);
+        return;
+      }
 
       // Publish points
       points_publisher_.publish(cloud);
@@ -535,6 +588,12 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info)
 {
+  if (info->time_sync_offset > 0)
+  {
+    std::lock_guard<std::mutex> lock(ptp_offsets_mutex_);
+    ptp_offsets_.emplace(info->handle, info->time_sync_offset);
+  }
+
   {
     std::lock_guard<std::mutex> lock(status_lock_);
     handle_to_serial_number_[info->handle] = info->serial_number;
