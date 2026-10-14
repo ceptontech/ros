@@ -555,6 +555,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
       {
         sensor_msgs::PointCloud2 msg;
         pcl::toROSMsg(cloud, msg);
+        remove_point_field(msg, "relative_timestamp");
         if (timestamp_mode_ == TimestampMode::Relative)
         {
           std::vector<uint32_t> frame_offsets(timestamps[handle].begin(), timestamps[handle].end());

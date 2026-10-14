@@ -62,8 +62,10 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 Set `timestamp_mode: relative` or `timestamp_mode: absolute` in the publisher
 configuration. All point-cloud topics use the selected mode. Invalid mode names
 fail initialization before SDK networking starts. The added field is available
-even when `WITH_TS_CH_F=OFF`; the existing UINT16 `relative_timestamp`, when
-enabled, remains the SDK's successive point delta in microseconds.
+even when `WITH_TS_CH_F=OFF`. In `relative` and `absolute` modes, the existing
+UINT16 `relative_timestamp` is removed to avoid duplicating point timing data;
+it remains available in `legacy` mode as the SDK's successive point delta in
+microseconds.
 
 Point deltas are accumulated before filtering. With `aggregate_frames: true`,
 the header retains the first frame's start time and relative point times include
