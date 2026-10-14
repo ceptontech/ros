@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -40,10 +41,20 @@ public:
     current_us_ += delta_us;
   }
 
-  double seconds(TimestampMode mode) const
+  uint32_t frame_offset_us() const
   {
-    const int64_t value = mode == TimestampMode::Relative ? current_us_ - cloud_header_us_ : current_us_;
-    return static_cast<double>(value) / 1000000.0;
+    const int64_t offset_us = current_us_ - cloud_header_us_;
+    if (offset_us <= 0)
+      return 0;
+    if (offset_us >= std::numeric_limits<uint32_t>::max())
+      return std::numeric_limits<uint32_t>::max();
+    return static_cast<uint32_t>(offset_us);
+  }
+
+  uint64_t timestamp_us() const
+  {
+    // PointCloud2's UINT64 field cannot represent a pre-epoch timestamp.
+    return current_us_ <= 0 ? 0 : static_cast<uint64_t>(current_us_);
   }
 
 private:

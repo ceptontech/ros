@@ -19,7 +19,7 @@ max_azimuth: 90.
 min_distance: 0.0
 max_distance: 1000.0
 aggregate_frames: false
-# legacy: original fields; relative/absolute: FLOAT64 timestamp in seconds.
+# legacy: original fields; relative: UINT32 frame_offset_us; absolute: FLOAT64 timestamp in seconds.
 timestamp_mode: legacy
 
 # In ROS, unlike in ROS2, this needs to be set to an empty

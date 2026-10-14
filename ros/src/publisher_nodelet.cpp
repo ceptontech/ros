@@ -395,7 +395,7 @@ void PublisherNodelet::onInit()
 void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points,
                         bool reset_cloud, float min_distance, float max_distance, float min_image_x, float max_image_x,
                         float min_image_z, float max_image_z, uint16_t include_flag, int64_t ptp_offset,
-                        TimestampMode timestamp_mode, std::vector<double>& timestamps)
+                        TimestampMode timestamp_mode, std::vector<uint64_t>& timestamps)
 {
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
@@ -476,8 +476,10 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cp.elevation = elevation_rad;
 #endif
     cloud.points.push_back(cp);
-    if (timestamp_mode != TimestampMode::Legacy)
-      timestamps.push_back(point_timestamp.seconds(timestamp_mode));
+    if (timestamp_mode == TimestampMode::Relative)
+      timestamps.push_back(point_timestamp.frame_offset_us());
+    else if (timestamp_mode == TimestampMode::Absolute)
+      timestamps.push_back(point_timestamp.timestamp_us());
   }
 
   cloud.height = 1;
@@ -489,7 +491,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
 {
   // Buffer to build the output cloud
   static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
-  static std::unordered_map<CeptonSensorHandle, std::vector<double>> timestamps;
+  static std::unordered_map<CeptonSensorHandle, std::vector<uint64_t>> timestamps;
 
   // The previous async publisher references these buffers. Wait before reuse.
   if (pub_fut_.valid())
@@ -553,7 +555,21 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
       {
         sensor_msgs::PointCloud2 msg;
         pcl::toROSMsg(cloud, msg);
-        append_timestamp_field(msg, timestamps[handle]);
+        if (timestamp_mode_ == TimestampMode::Relative)
+        {
+          std::vector<uint32_t> frame_offsets(timestamps[handle].begin(), timestamps[handle].end());
+          append_timestamp_field(msg, "frame_offset_us", sensor_msgs::PointField::UINT32, frame_offsets);
+        }
+        else
+        {
+          std::vector<double> timestamp;
+          timestamp.reserve(timestamps[handle].size());
+          for (const auto timestamp_us : timestamps[handle])
+          {
+            timestamp.push_back(static_cast<double>(timestamp_us) / 1000000.0);
+          }
+          append_timestamp_field(msg, "timestamp", sensor_msgs::PointField::FLOAT64, timestamp);
+        }
         points_publisher_.publish(msg);
         if (handle_points_publisher_.count(handle) && output_by_handle_)
           handle_points_publisher_[handle].publish(msg);
