@@ -77,10 +77,6 @@ cached value. `frame_offset_us` is saturated at UINT32_MAX (about 71.6 minutes).
 consumers; unlike the internal integer-microsecond value, epoch-sized FLOAT64
 values are not exact at every microsecond. It is zero for a pre-epoch sensor time.
 
-Included `NO_RETURN` points have XYZ set to zero after the existing angle and
-distance filters. Their intensity, flags and timestamps remain available;
-`include_invalid_points: false` excludes these points as before.
-
 #### `output_by_handle` (bool, default: varies)
 
 - **Description**: Enable publishing point clouds on handle-specific topics
