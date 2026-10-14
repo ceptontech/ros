@@ -16,29 +16,28 @@ template <typename CloudMessage>
 bool remove_point_field(CloudMessage& msg, const std::string& name)
 {
   using Field = typename decltype(msg.fields)::value_type;
-  auto field_it = std::find_if(msg.fields.begin(), msg.fields.end(), [&name](const Field& field) {
-    return field.name == name;
-  });
+  auto field_it =
+      std::find_if(msg.fields.begin(), msg.fields.end(), [&name](const Field& field) { return field.name == name; });
   if (field_it == msg.fields.end())
     return false;
 
   const size_t field_size = [&field_it]() {
     switch (field_it->datatype)
     {
-    case Field::INT8:
-    case Field::UINT8:
-      return size_t{ 1 };
-    case Field::INT16:
-    case Field::UINT16:
-      return size_t{ 2 };
-    case Field::INT32:
-    case Field::UINT32:
-    case Field::FLOAT32:
-      return size_t{ 4 };
-    case Field::FLOAT64:
-      return size_t{ 8 };
-    default:
-      throw std::invalid_argument("Unsupported PointCloud2 field datatype");
+      case Field::INT8:
+      case Field::UINT8:
+        return size_t{ 1 };
+      case Field::INT16:
+      case Field::UINT16:
+        return size_t{ 2 };
+      case Field::INT32:
+      case Field::UINT32:
+      case Field::FLOAT32:
+        return size_t{ 4 };
+      case Field::FLOAT64:
+        return size_t{ 8 };
+      default:
+        throw std::invalid_argument("Unsupported PointCloud2 field datatype");
     }
   }() * field_it->count;
   const auto field_offset = field_it->offset;
