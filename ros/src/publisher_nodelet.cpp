@@ -424,8 +424,12 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
   {
     cepton_ros::Point cp;
     auto const& p = points[i];
+    // The first point of an output frame has no preceding point within that
+    // frame.  When frames are aggregated, reset_cloud is true only for the
+    // first input frame, so preserve the inter-frame delta for later inputs.
+    const uint16_t relative_timestamp = (reset_cloud && i == 0) ? 0 : p.relative_timestamp;
     // Advance before filters so discarded points do not shorten elapsed time.
-    point_timestamp.advance(p.relative_timestamp);
+    point_timestamp.advance(relative_timestamp);
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
@@ -464,10 +468,7 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cp.intensity = p.reflectivity * 0.01;
 
 #ifdef WITH_TS_CH_F
-    // The first point of an output frame has no preceding point within that
-    // frame.  When frames are aggregated, reset_cloud is true only for the
-    // first input frame, so preserve the inter-frame delta for later inputs.
-    cp.relative_timestamp = (reset_cloud && i == 0) ? 0 : p.relative_timestamp;
+    cp.relative_timestamp = relative_timestamp;
     cp.channel_id = p.channel_id;
     cp.flags = p.flags;
     cp.valid = !(p.flags & CEPTON_POINT_NO_RETURN);
