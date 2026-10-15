@@ -395,7 +395,8 @@ void PublisherNodelet::onInit()
 void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points,
                         bool reset_cloud, float min_distance, float max_distance, float min_image_x, float max_image_x,
                         float min_image_z, float max_image_z, uint16_t include_flag, int64_t ptp_offset,
-                        TimestampMode timestamp_mode, std::vector<uint64_t>& timestamps)
+                        TimestampMode timestamp_mode, std::vector<uint64_t>& timestamps,
+                        PointTimestamp& point_timestamp)
 {
   const auto max_distance_squared = max_distance * max_distance;
   const auto min_distance_squared = min_distance * min_distance;
@@ -409,13 +410,13 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
     cloud.height = 1;
     cloud.reserve(n_points);
     timestamps.clear();
+    point_timestamp.reset(static_cast<int64_t>(cloud.header.stamp));
   }
   else
   {
     cloud.reserve(cloud.points.size() + n_points);
   }
 
-  PointTimestamp point_timestamp(start_timestamp, ptp_offset, static_cast<int64_t>(cloud.header.stamp));
   if (timestamp_mode != TimestampMode::Legacy)
     timestamps.reserve(timestamps.size() + n_points);
 
@@ -496,6 +497,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
   // Buffer to build the output cloud
   static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
   static std::unordered_map<CeptonSensorHandle, std::vector<uint64_t>> timestamps;
+  static std::unordered_map<CeptonSensorHandle, PointTimestamp> point_timestamps;
 
   // The previous async publisher references these buffers. Wait before reuse.
   if (pub_fut_.valid())
@@ -540,7 +542,7 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
     const bool reset_cloud = first || !aggregate_frames_;
     extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud, min_distance_, max_distance_,
                        min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_, ptp_offset,
-                       timestamp_mode_, timestamps[handle]);
+                       timestamp_mode_, timestamps[handle], point_timestamps[handle]);
   }
 
   // If not ready to publish, return

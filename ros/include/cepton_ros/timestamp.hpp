@@ -27,13 +27,15 @@ inline TimestampMode parse_timestamp_mode(const std::string& value)
 }
 
 // SDK point times are successive deltas in microseconds. Advance for every
-// input point, including points removed by output filters.
+// input point, including points removed by output filters. Keep this state
+// across input frames belonging to the same output cloud.
 class PointTimestamp
 {
 public:
-  PointTimestamp(int64_t frame_start_us, int64_t ptp_offset_us, int64_t cloud_header_us)
-    : current_us_(frame_start_us + ptp_offset_us), cloud_header_us_(cloud_header_us)
+  void reset(int64_t cloud_header_us)
   {
+    current_us_ = cloud_header_us;
+    cloud_header_us_ = cloud_header_us;
   }
 
   void advance(uint16_t delta_us)
@@ -58,8 +60,8 @@ public:
   }
 
 private:
-  int64_t current_us_;
-  int64_t cloud_header_us_;
+  int64_t current_us_{ 0 };
+  int64_t cloud_header_us_{ 0 };
 };
 
 }  // namespace cepton_ros

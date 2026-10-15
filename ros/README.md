@@ -67,10 +67,13 @@ UINT16 `relative_timestamp` is removed to avoid duplicating point timing data;
 it remains available in `legacy` mode as the SDK's successive point delta in
 microseconds.
 
-Point deltas are accumulated before filtering. With `aggregate_frames: true`,
-the header retains the first frame's start time and relative point times include
-the second frame's gap. Each sensor's first positive `time_sync_offset` is cached
-independently and added to the header and absolute point times. Until then, its
+Point deltas are accumulated before filtering. The first input point's delta in
+each output cloud is ignored because it refers to a point in the previous cloud.
+With `aggregate_frames: true`, the header retains the first frame's start time
+and accumulation continues across the second frame, including its first point's
+delta from the end of the first frame. Each sensor's first positive
+`time_sync_offset` is cached independently and added to the header and absolute
+point times. Until then, its
 offset is zero and its sensor clock is used. Later offsets do not replace the
 cached value. `frame_offset_us` is saturated at UINT32_MAX (about 71.6 minutes).
 `timestamp` is FLOAT64 seconds for compatibility with standard PointCloud2
