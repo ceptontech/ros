@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <numeric>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -20,6 +22,7 @@
 #include "cepton_ros/SensorInformation.h"
 #include "cepton_ros/SensorPanic.h"
 #include "cepton_ros/cepton_ros.hpp"
+#include "cepton_ros/timestamp.hpp"
 #include "cepton_sdk3.h"
 
 enum SensorStatusFlags : uint32_t
@@ -143,6 +146,12 @@ private:
   float max_distance_{ std::numeric_limits<float>::max() };
 
   bool aggregate_frames_{ false };
+
+  TimestampMode timestamp_mode_{ TimestampMode::Legacy };
+
+  // Capture the first positive PTP offset independently for each sensor.
+  std::mutex ptp_offsets_mutex_;
+  std::unordered_map<CeptonSensorHandle, int64_t> ptp_offsets_;
 
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
