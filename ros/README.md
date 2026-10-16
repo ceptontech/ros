@@ -51,6 +51,35 @@ sensor_network_sources: ["192.168.1.100:8808:239.255.0.1"]
 
 ### Output Configuration
 
+#### `timestamp_mode` (string, default: "legacy")
+
+| Mode | PointCloud2 output |
+| --- | --- |
+| `legacy` | Original fields and layout |
+| `relative` | Adds `frame_offset_us` (UINT32 microseconds) relative to the published header |
+| `absolute` | Adds `timestamp` (FLOAT64 seconds since Unix epoch) in the PTP-corrected sensor clock |
+
+Set `timestamp_mode: relative` or `timestamp_mode: absolute` in the publisher
+configuration. All point-cloud topics use the selected mode. Invalid mode names
+fail initialization before SDK networking starts. The added field is available
+even when `WITH_TS_CH_F=OFF`. In `relative` and `absolute` modes, the existing
+UINT16 `relative_timestamp` is removed to avoid duplicating point timing data;
+it remains available in `legacy` mode as the SDK's successive point delta in
+microseconds.
+
+Point deltas are accumulated before filtering. The first input point's delta in
+each output cloud is ignored because it refers to a point in the previous cloud.
+With `aggregate_frames: true`, the header retains the first frame's start time
+and accumulation continues across the second frame, including its first point's
+delta from the end of the first frame. Each sensor's first positive
+`time_sync_offset` is cached independently and added to the header and absolute
+point times. Until then, its
+offset is zero and its sensor clock is used. Later offsets do not replace the
+cached value. `frame_offset_us` is saturated at UINT32_MAX (about 71.6 minutes).
+`timestamp` is FLOAT64 seconds for compatibility with standard PointCloud2
+consumers; unlike the internal integer-microsecond value, epoch-sized FLOAT64
+values are not exact at every microsecond. It is zero for a pre-epoch sensor time.
+
 #### `output_by_handle` (bool, default: varies)
 
 - **Description**: Enable publishing point clouds on handle-specific topics
@@ -142,7 +171,7 @@ Contains the following fields per point:
 
 **WITH_TS_CH_F Fields**:
 
-- **relative_timestamp**: Relative timestamp within the frame
+- **relative_timestamp**: SDK delta from the previous point, in microseconds (UINT16)
 - **channel_id**: Sensor channel identifier
 - **flags**: Point quality flags
 - **valid**: Boolean indicating if point has valid return
