@@ -3,12 +3,15 @@
 """Receive one PointCloud2 message and print its point count."""
 
 import argparse
+from pathlib import Path
 import sys
 import time
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
+
+from pointcloud_snapshot import write_snapshot
 
 
 def parse_args(argv):
@@ -29,6 +32,11 @@ def parse_args(argv):
     parser.add_argument(
         "--target-stamp",
         help="Only count a message with this header stamp, formatted as sec.nanosec",
+    )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        help="Save all fields of the counted message for the point-field report",
     )
     return parser.parse_args(argv)
 
@@ -107,6 +115,9 @@ def main(argv=None):
         print(f"WIDTH={message.width}")
         print(f"HEIGHT={message.height}")
         print(f"POINT_COUNT={point_count}")
+        if args.output_json is not None:
+            write_snapshot(message, args.topic, args.output_json)
+            print(f"SNAPSHOT={args.output_json}")
         return 0
     finally:
         node.destroy_node()
