@@ -64,7 +64,7 @@ jobs:
               parameter_args=(-p "$parameter:=$value")
             fi
             case "$case_name" in
-              baseline|aggregate_2)
+              baseline|aggregate_2|frame_offset_baseline|frame_offset_aggregate_2)
                 snapshot_args=(--output-json "artifacts/ros2-point-fields/data/$case_name.json")
                 ;;
             esac
@@ -136,13 +136,28 @@ jobs:
           test "$retro_delta" -eq 4
           test "$retro_weak_delta" -eq 8
           test "$aggregate_2" -eq "$aggregate_expected"
+
+          # Capture the same frames with the frame-offset point layout.
+          colcon --log-base /tmp/cepton_log build \
+            --packages-select cepton_publisher \
+            --build-base /tmp/cepton_build \
+            --install-base /tmp/cepton_install \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DWITH_TS=OFF -DWITH_FRAME_OFFSET=ON
+
+          count_points frame_offset_baseline 7 "" "" /tmp/frame_offset_baseline.count
+          count_points frame_offset_aggregate_2 8 aggregation_frame_count 2 \
+            /tmp/frame_offset_aggregate_2.count
+          test "$(cat /tmp/frame_offset_baseline.count)" -eq "$baseline"
+          test "$(cat /tmp/frame_offset_aggregate_2.count)" -eq "$aggregate_2"
           '
 
       - name: Render point-field graphs
         if: ${{ !cancelled() }}
         run: |
           if [[ -f artifacts/ros2-point-fields/data/baseline.json && \
-                -f artifacts/ros2-point-fields/data/aggregate_2.json ]]; then
+                -f artifacts/ros2-point-fields/data/aggregate_2.json && \
+                -f artifacts/ros2-point-fields/data/frame_offset_baseline.json && \
+                -f artifacts/ros2-point-fields/data/frame_offset_aggregate_2.json ]]; then
             docker run --rm \
               -e GITHUB_SHA -e GITHUB_REPOSITORY -e GITHUB_RUN_ID -e GITHUB_SERVER_URL \
               -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA \

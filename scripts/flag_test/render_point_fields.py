@@ -20,6 +20,8 @@ from plotly.offline import get_plotlyjs
 CASES = (
     ("baseline", "基準（1フレーム）", "#2563eb"),
     ("aggregate_2", "2フレーム集約", "#d97706"),
+    ("frame_offset_baseline", "frame offsetビルド（1フレーム）", "#059669"),
+    ("frame_offset_aggregate_2", "frame offsetビルド（2フレーム集約）", "#7c3aed"),
 )
 
 STYLE = """
@@ -71,6 +73,9 @@ def render_report(data_dir, output_dir):
         for field in snapshot["fields"]:
             if len(field["values"]) != snapshot["point_count"]:
                 raise ValueError(f"{name}: wrong point count for {field['name']}")
+        if name.startswith("frame_offset_") and not any(
+                field["name"] == "frame_offset_us" for field in snapshot["fields"]):
+            raise ValueError(f"{name}: frame_offset_us field is missing")
         snapshots[name] = snapshot
 
     field_names = list(dict.fromkeys(
@@ -106,7 +111,7 @@ def render_report(data_dir, output_dir):
         '<section><h2>受信したメッセージ</h2><div class="table"><table>'
         '<tr><th>条件</th><th>点数</th><th>Header stamp</th><th>Topic</th>'
         '<th>Frame ID</th><th>データ</th></tr>' + "".join(rows) + "</table></div>"
-        '<p>各条件でsubscribeした1メッセージを記録しています。2フレーム集約は、'
+        '<p>各ビルド設定でsubscribeした1メッセージを記録しています。2フレーム集約は、'
         '2フレーム分を連結してpublishした1メッセージです。</p></section>'
     )
     instructions = (
@@ -115,7 +120,7 @@ def render_report(data_dir, output_dir):
         '<p class="muted">ドラッグで拡大、ダブルクリックで範囲をリセット。'
         '広い範囲では各区間の最小値と最大値を描画し、拡大すると個々の点を表示します。'
         '点にカーソルを合わせると番号と値を表示します。'
-        'timestamp_s・timestamp_usは受信した値をそのまま描画します。</p>'
+        'timestamp_s・timestamp_us・frame_offset_usは受信した値をそのまま描画します。</p>'
     )
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     commit = os.environ.get("GITHUB_SHA", "local")
@@ -160,7 +165,8 @@ def render_report(data_dir, output_dir):
 
     body = (
         f"<h1>ROS2 PointCloud2 フィールド別グラフ</h1>{instructions}{metadata}"
-        '<section><h2>フィールドを選択</h2><p>各ページで基準と2フレーム集約を上下に表示します。</p>'
+        '<section><h2>フィールドを選択</h2><p>各ページで通常ビルドとframe offsetビルドの'
+        '1フレーム・2フレーム集約を上下に表示します。</p>'
         '<table><tr><th>フィールド</th><th>データ型</th></tr>' + "".join(field_rows)
         + f"</table></section>{provenance}"
     )

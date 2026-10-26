@@ -201,6 +201,9 @@ void CeptonPublisher::publish_points(
 #ifdef WITH_TS
   n_fields += 2;
 #endif
+#ifdef WITH_FRAME_OFFSET
+  n_fields += 1;
+#endif
 #ifdef WITH_CH
   n_fields += 1;
 #endif
@@ -233,6 +236,10 @@ void CeptonPublisher::publish_points(
                 ,
                 "timestamp_s", 1, PointField::INT32,
                 "timestamp_us", 1, PointField::INT32
+                #endif
+                #ifdef WITH_FRAME_OFFSET
+                ,
+                "frame_offset_us", 1, PointField::UINT32
                 #endif
                 #ifdef WITH_CH
                 ,
@@ -269,6 +276,10 @@ void CeptonPublisher::publish_points(
   auto timestamp_sec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
   auto timestamp_usec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_us");
 #endif
+#ifdef WITH_FRAME_OFFSET
+  auto frame_offset_usec_iter =
+    sensor_msgs::PointCloud2Iterator<uint32_t>(cloud, "frame_offset_us");
+#endif
 #ifdef WITH_CH
   auto channel_id_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
 #endif
@@ -297,6 +308,9 @@ void CeptonPublisher::publish_points(
   timestamp_sec_iter += iterator_offset;
   timestamp_usec_iter += iterator_offset;
 #endif
+#ifdef WITH_FRAME_OFFSET
+  frame_offset_usec_iter += iterator_offset;
+#endif
 #ifdef WITH_CH
   channel_id_iter += iterator_offset;
 #endif
@@ -318,6 +332,11 @@ void CeptonPublisher::publish_points(
 #ifdef WITH_TS
   auto timestamp = start_timestamp;
 #endif
+#ifdef WITH_FRAME_OFFSET
+  const int64_t ros_header_timestamp_us =
+    static_cast<int64_t>(cloud.header.stamp.sec) * 1'000'000 + cloud.header.stamp.nanosec / 1'000;
+  uint32_t frame_offset_us = static_cast<uint32_t>(start_timestamp - ros_header_timestamp_us);
+#endif
 
   size_t skipped = 0;
 
@@ -328,6 +347,11 @@ void CeptonPublisher::publish_points(
     // Skip the first point's delta; its timestamp is already start_timestamp.
     if (i != 0) {
       timestamp += points[i].relative_timestamp;
+    }
+#endif
+#ifdef WITH_FRAME_OFFSET
+    if (i != 0) {
+      frame_offset_us += points[i].relative_timestamp;
     }
 #endif
 
@@ -398,6 +422,10 @@ void CeptonPublisher::publish_points(
     // timestamp - microseconds
     *timestamp_usec_iter = timestamp % (int64_t)1e6;
     ++timestamp_usec_iter;
+#endif
+#ifdef WITH_FRAME_OFFSET
+    *frame_offset_usec_iter = frame_offset_us;
+    ++frame_offset_usec_iter;
 #endif
 #ifdef WITH_CH
     // channel id

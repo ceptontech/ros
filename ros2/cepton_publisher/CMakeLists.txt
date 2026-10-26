@@ -16,6 +16,7 @@ option(WITH_TS "Include timestamp fields" ON)
 option(WITH_CH "Include channel ID field" ON)
 option(WITH_F "Include flag field" ON)
 option(WITH_PTP "PTP MODE: ON" ON)
+option(WITH_FRAME_OFFSET "include frame offset field. but exclude point timestamp." OFF)
 
 
 # Default to C99
@@ -89,6 +90,13 @@ if (WITH_F)
 endif()
 if (WITH_PTP)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_PTP)
+endif()
+# 排反
+if (WITH_TS AND WITH_FRAME_OFFSET)
+  message(FATAL_ERROR "WITH_TS and WITH_FRAME_OFFSET cannot both be ON")
+endif()
+if (WITH_FRAME_OFFSET)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_FRAME_OFFSET)
 endif()
 
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)
