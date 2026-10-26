@@ -280,24 +280,23 @@ void CeptonPublisher::publish_points(
   size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
-    auto const& p0 = points[i];
 
 #ifdef WITH_TS_CH_F
     // Keep timestamp progression aligned with the original point order, even
     // when later filters drop this point.
-    timestamp += p0.relative_timestamp;
+    timestamp += points[i].relative_timestamp;
 #endif
 
     // If point has flags that should not be included (specified by the
     // include_flag), continue
-    if ((~(include_flag_) & (p0.flags)) != 0) {
+    if ((~(include_flag_) & (points[i].flags)) != 0) {
       ++skipped;
       continue;
     }
 
-    float x = p0.x * SDK_UNIT_TO_METERS;
-    float y = p0.y * SDK_UNIT_TO_METERS;
-    float z = p0.z * SDK_UNIT_TO_METERS;
+    float x = points[i].x * SDK_UNIT_TO_METERS;
+    float y = points[i].y * SDK_UNIT_TO_METERS;
+    float z = points[i].z * SDK_UNIT_TO_METERS;
 
     // Convert cepton coordinates to ROS coordinates
     {
@@ -344,7 +343,7 @@ void CeptonPublisher::publish_points(
     ++z_iter;
 
     // intensity
-    *intensity_iter = p0.reflectivity * 0.01;
+    *intensity_iter = points[i].reflectivity * 0.01;
     ++intensity_iter;
 
 #ifdef WITH_TS_CH_F
@@ -357,11 +356,11 @@ void CeptonPublisher::publish_points(
     ++timestamp_usec_iter;
 
     // flags
-    *flag_iter = p0.flags;
+    *flag_iter = points[i].flags;
     ++flag_iter;
 
     // channel id
-    *channel_id_iter = p0.channel_id;
+    *channel_id_iter = points[i].channel_id;
     ++channel_id_iter;
 #endif
 
@@ -370,7 +369,7 @@ void CeptonPublisher::publish_points(
     const double elevation_rad = atan2(image_z, sqrt(image_x * image_x + 1));
 
     // If this point is a no-return, set the distance to 0
-    bool const is_valid_return = (p0.flags & CEPTON_POINT_NO_RETURN) == 0;
+    bool const is_valid_return = (points[i].flags & CEPTON_POINT_NO_RETURN) == 0;
     float range_meas = is_valid_return ? sqrt(x * x + y * y + z * z) : 0.0;
 
     // azimuth
