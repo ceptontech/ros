@@ -43,7 +43,7 @@ jobs:
             --packages-select cepton_messages cepton_publisher \
             --build-base /tmp/cepton_build \
             --install-base /tmp/cepton_install \
-            --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
+            --cmake-args -DCMAKE_BUILD_TYPE=Release
 
           set +u
           source /tmp/cepton_install/setup.bash

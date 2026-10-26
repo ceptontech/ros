@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 project(cepton_publisher)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
 # Read the package version from package.xml so it doesn't need to be
 # duplicated in source code
