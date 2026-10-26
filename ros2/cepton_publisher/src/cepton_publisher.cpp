@@ -280,7 +280,6 @@ void CeptonPublisher::publish_points(
   size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
-
 #ifdef WITH_TS_CH_F
     // Keep timestamp progression aligned with the original point order, even
     // when later filters drop this point.
