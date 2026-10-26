@@ -18,6 +18,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Check graph sampling
+        run: node --test scripts/flag_test/test_point_field_viewer.cjs
+
       - name: Build docker image
         run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
 

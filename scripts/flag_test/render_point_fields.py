@@ -3,15 +3,18 @@
 """Build an offline-capable point-index/field-value report from CI snapshots."""
 
 import argparse
+from array import array
+import base64
 from datetime import datetime, timezone
+import gzip
 from html import escape
 import json
+import math
 import os
 from pathlib import Path
+import sys
 
-import plotly.graph_objects as go
 from plotly.offline import get_plotlyjs
-from plotly.subplots import make_subplots
 
 
 CASES = (
@@ -38,13 +41,24 @@ code { overflow-wrap: anywhere; }
 
 
 def document(title, body, use_plotly=False):
-    script = '<script src="plotly.min.js"></script>' if use_plotly else ""
+    script = (
+        '<script src="plotly.min.js" defer></script>'
+        '<script src="point_field_viewer.js" defer></script>'
+    ) if use_plotly else ""
     return (
         '<!doctype html><html lang="ja"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{escape(title)}</title><style>{STYLE}</style>{script}"
         f"</head><body><main>{body}</main></body></html>"
     )
+
+
+def encode_values(values):
+    """Keep every original numeric value in a compact, portable float64 series."""
+    series = array("d", (math.nan if value is None else float(value) for value in values))
+    if sys.byteorder != "little":
+        series.byteswap()
+    return base64.b64encode(gzip.compress(series.tobytes(), compresslevel=6, mtime=0)).decode("ascii")
 
 
 def render_report(data_dir, output_dir):
@@ -64,6 +78,8 @@ def render_report(data_dir, output_dir):
     ))
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "plotly.min.js").write_text(get_plotlyjs(), encoding="utf-8")
+    viewer_source = Path(__file__).with_name("point_field_viewer.js")
+    (output_dir / viewer_source.name).write_bytes(viewer_source.read_bytes())
     links = [(field_name, f"field-{index:02d}.html")
              for index, field_name in enumerate(field_names)]
     navigation = '<nav><a href="index.html">一覧</a>' + "".join(
@@ -95,8 +111,9 @@ def render_report(data_dir, output_dir):
     )
     instructions = (
         '<p>横軸：受信メッセージ内の点の番号（0始まり）／縦軸：フィールドの値。'
-        '受信順を保ち、全点を描画します。NaN・Infはその番号を残して欠損として扱います。</p>'
+        '受信順と全点の元データを保持します。NaN・Infはその番号を残して欠損として扱います。</p>'
         '<p class="muted">ドラッグで拡大、ダブルクリックで範囲をリセット。'
+        '広い範囲では各区間の最小値と最大値を描画し、拡大すると個々の点を表示します。'
         '点にカーソルを合わせると番号と値を表示します。'
         'timestamp_s・timestamp_usは受信した値をそのまま描画します。</p>'
     )
@@ -112,42 +129,27 @@ def render_report(data_dir, output_dir):
 
     field_rows = []
     for field_name, filename in links:
-        figure = make_subplots(
-            rows=2, cols=1, subplot_titles=[case[1] for case in CASES],
-            vertical_spacing=0.16,
-        )
         types = []
-        for row, (case_name, label, color) in enumerate(CASES, start=1):
+        charts = []
+        for case_name, label, color in CASES:
             snapshot = snapshots[case_name]
             field = next((f for f in snapshot["fields"] if f["name"] == field_name), None)
             if field is None:
-                figure.add_annotation(text="このフィールドはありません", row=row, col=1,
-                                      showarrow=False)
+                charts.append(f'<section><h2>{label}</h2>このフィールドはありません。</section>')
                 continue
             types.append(field["datatype"])
-            figure.add_trace(go.Scattergl(
-                x=list(range(snapshot["point_count"])), y=field["values"],
-                mode="markers", marker={"size": 3, "color": color}, name=label,
-                hovertemplate="点の番号: %{x}<br>値: %{y}<extra>%{fullData.name}</extra>",
-            ), row=row, col=1)
-            figure.update_xaxes(title_text="点の番号（0始まり）", rangemode="tozero",
-                                tickformat=",d", row=row, col=1)
-            figure.update_yaxes(title_text=field_name, showexponent="none",
-                                exponentformat="none", separatethousands=True,
-                                row=row, col=1)
-        figure.update_layout(
-            height=880, template="plotly_white", showlegend=False,
-            margin={"l": 100, "r": 30, "t": 60, "b": 65},
-            font={"family": "system-ui, sans-serif"},
-        )
-        chart = figure.to_html(
-            full_html=False, include_plotlyjs=False,
-            config={"responsive": True, "displaylogo": False,
-                    "toImageButtonOptions": {"format": "svg", "filename": field_name}},
-        )
+            encoded = encode_values(field["values"])
+            charts.append(
+                f'<section class="chart"><h2>{label}</h2>'
+                f'<div class="point-chart" data-field="{escape(field_name, quote=True)}" '
+                f'data-color="{color}" data-count="{snapshot["point_count"]}">'
+                '<p>グラフを読み込み中…</p></div>'
+                f'<script type="application/octet-stream" class="point-series">{encoded}</script>'
+                '</section>'
+            )
         body = (
             f"<h1>{escape(field_name)}</h1>{navigation}{instructions}"
-            f'<div class="chart">{chart}</div>{metadata}{provenance}'
+            f'{"".join(charts)}{metadata}{provenance}'
         )
         (output_dir / filename).write_text(document(field_name, body, use_plotly=True),
                                           encoding="utf-8")
