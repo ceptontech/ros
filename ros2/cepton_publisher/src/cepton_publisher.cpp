@@ -178,8 +178,14 @@ void CeptonPublisher::publish_points(
   sensor_msgs::PointCloud2Modifier cloud_modifier(cloud);
 
   int n_fields = 4;
-#ifdef WITH_TS_CH_F
-  n_fields += 4;
+#ifdef WITH_TS
+  n_fields += 2;
+#endif
+#ifdef WITH_CH
+  n_fields += 1;
+#endif
+#ifdef WITH_F
+  n_fields += 1;
 #endif
 #ifdef WITH_POLAR
   n_fields += 3;
@@ -203,12 +209,18 @@ void CeptonPublisher::publish_points(
                 "y", 1, PointField::FLOAT32,
                 "z", 1, PointField::FLOAT32,
                 "intensity", 1, PointField::FLOAT32
-                #ifdef WITH_TS_CH_F
+                #ifdef WITH_TS
                 ,
                 "timestamp_s", 1, PointField::INT32,
-                "timestamp_us", 1, PointField::INT32,
-                "flags", 1, PointField::UINT16,
+                "timestamp_us", 1, PointField::INT32
+                #endif
+                #ifdef WITH_CH
+                ,
                 "channel_id", 1, PointField::UINT16
+                #endif
+                #ifdef WITH_F
+                ,
+                "flags", 1, PointField::UINT16
                 #endif
                 #ifdef WITH_POLAR
                 ,
@@ -233,11 +245,15 @@ void CeptonPublisher::publish_points(
   auto z_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "z");
   auto intensity_iter = sensor_msgs::PointCloud2Iterator<float>(cloud, "intensity");
 
-#ifdef WITH_TS_CH_F
+#ifdef WITH_TS
   auto timestamp_sec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_s");
   auto timestamp_usec_iter = sensor_msgs::PointCloud2Iterator<int32_t>(cloud, "timestamp_us");
-  auto flag_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "flags");
+#endif
+#ifdef WITH_CH
   auto channel_id_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
+#endif
+#ifdef WITH_F
+  auto flag_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "flags");
 #endif
 
 #ifdef WITH_POLAR
@@ -257,11 +273,15 @@ void CeptonPublisher::publish_points(
   z_iter += iterator_offset;
   intensity_iter += iterator_offset;
 
-#ifdef WITH_TS_CH_F
+#ifdef WITH_TS
   timestamp_sec_iter += iterator_offset;
   timestamp_usec_iter += iterator_offset;
-  flag_iter += iterator_offset;
+#endif
+#ifdef WITH_CH
   channel_id_iter += iterator_offset;
+#endif
+#ifdef WITH_F
+  flag_iter += iterator_offset;
 #endif
 
 #ifdef WITH_POLAR
@@ -273,14 +293,14 @@ void CeptonPublisher::publish_points(
   auto const min_distance_squared = min_distance_ * min_distance_;
   auto const max_distance_squared = max_distance_ * max_distance_;
 
-#ifdef WITH_TS_CH_F
+#ifdef WITH_TS
   auto timestamp = start_timestamp;
 #endif
 
   size_t skipped = 0;
 
   for (unsigned i = 0; i < n_points; i++) {
-#ifdef WITH_TS_CH_F
+#ifdef WITH_TS
     // Keep timestamp progression aligned with the original point order, even
     // when later filters drop this point.
     timestamp += points[i].relative_timestamp;
@@ -345,7 +365,7 @@ void CeptonPublisher::publish_points(
     *intensity_iter = points[i].reflectivity * 0.01;
     ++intensity_iter;
 
-#ifdef WITH_TS_CH_F
+#ifdef WITH_TS
     // timestamp - seconds
     *timestamp_sec_iter = timestamp / (int64_t)1e6;
     ++timestamp_sec_iter;
@@ -353,14 +373,16 @@ void CeptonPublisher::publish_points(
     // timestamp - microseconds
     *timestamp_usec_iter = timestamp % (int64_t)1e6;
     ++timestamp_usec_iter;
-
-    // flags
-    *flag_iter = points[i].flags;
-    ++flag_iter;
-
+#endif
+#ifdef WITH_CH
     // channel id
     *channel_id_iter = points[i].channel_id;
     ++channel_id_iter;
+#endif
+#ifdef WITH_F
+    // flags
+    *flag_iter = points[i].flags;
+    ++flag_iter;
 #endif
 
 #ifdef WITH_POLAR

@@ -7,9 +7,11 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/package.xml" PACKAGE_XML_CONTENT)
 string(REGEX MATCH "<version>([^<]*)</version>" _ ${PACKAGE_XML_CONTENT})
 set(CEPTON_PUBLISHER_VERSION "v${CMAKE_MATCH_1}")
 
-# Example usage: `catkin_make -DWITH_POLAR=OFF` to disable polar coordinates.
+# Example usage: `colcon build --cmake-args -DWITH_POLAR=OFF` to disable polar coordinates.
 option(WITH_POLAR "Compile point types with polar coordinates" ON)
-option(WITH_TS_CH_F "Compile point types with timestamp, channel, and flag" ON)
+option(WITH_TS "Include timestamp fields" ON)
+option(WITH_CH "Include channel ID field" ON)
+option(WITH_F "Include flag field" ON)
 
 
 # Default to C99
@@ -72,8 +74,14 @@ target_compile_definitions(
 if (WITH_POLAR)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_POLAR)
 endif()
-if (WITH_TS_CH_F)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_TS_CH_F)
+if (WITH_TS)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_TS)
+endif()
+if (WITH_CH)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_CH)
+endif()
+if (WITH_F)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_F)
 endif()
 
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)

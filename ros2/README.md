@@ -157,12 +157,13 @@ expected_sensor_ips:
 
 ### Optional Fields (compile-time flags)
 
-#### WITH_TS_CH_F Fields
+#### WITH_TS Fields
 - **timestamp_s** (int32): Timestamp seconds portion
 - **timestamp_us** (int32): Timestamp microseconds portion  
-- **flags** (uint16): Point quality flags
+#### WITH_CH Field
 - **channel_id** (uint16): Sensor channel identifier
-
+#### WITH_F Field
+- **flags** (uint16): Point quality flags
 #### WITH_POLAR Fields
 - **azimuth** (float32): Azimuth angle in radians
 - **elevation** (float32): Elevation angle in radians
@@ -191,7 +192,9 @@ Monitoring message with:
 
 ### CMake Flags
 - **`-DWITH_POLAR=OFF`**: Disable polar coordinate fields
-- **`-DWITH_TS_CH_F=OFF`**: Disable timestamp, channel, and flag fields
+- **`-DWITH_TS=OFF`**: Disable timestamp fields
+- **`-DWITH_CH=OFF`**: Disable channel field
+- **`-DWITH_F=OFF`**: Disable flag field
 
 ### Build Commands
 ```bash
@@ -199,7 +202,7 @@ Monitoring message with:
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
 
 # Build with filtered fields
-colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS=OFF -DWITH_CH=OFF -DWITH_F=OFF
 ```
 
 ### Run Commands
