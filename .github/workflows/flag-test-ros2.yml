@@ -3,6 +3,12 @@ name: Driver parameter test (ROS2)
 on:
   pull_request:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   driver-parameter-tests:
@@ -12,6 +18,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Check graph sampling
+        run: node --test scripts/flag_test/test_point_field_viewer.cjs
+
       - name: Build docker image
         run: docker build . --tag ci_ros2_flag_test_$GITHUB_SHA -f ci/Dockerfile.ros2
 
@@ -20,6 +29,7 @@ jobs:
           docker run --rm --network host --ipc host \
             -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA bash -euo pipefail -c '
           cd /app
+          python3 -m unittest discover -s scripts/flag_test -p "test_*.py"
           mkdir -p /root/Documents/Cepton
           cp scripts/flag_test/calibration/calibration_3276808.bin /root/Documents/Cepton/
 
@@ -47,17 +57,24 @@ jobs:
             local result_file="$5"
             local output
             local parameter_args=()
+            local snapshot_args=()
 
             export ROS_DOMAIN_ID="$domain_id"
             if [ -n "$parameter" ]; then
               parameter_args=(-p "$parameter:=$value")
             fi
+            case "$case_name" in
+              baseline|aggregate_2)
+                snapshot_args=(--output-json "artifacts/ros2-point-fields/data/$case_name.json")
+                ;;
+            esac
             echo "Counting points for $case_name on ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 
             # 全フレームを同じ点数にしているが、target-stamp なしでは安定しない。
             python3 scripts/flag_test/count_points_ros2.py \
               --timeout 120 \
               --target-stamp 80.557132000 \
+              "${snapshot_args[@]}" \
               > /tmp/cepton_count_points.out 2>&1 &
             local subscriber_pid=$!
             sleep 1
@@ -120,3 +137,52 @@ jobs:
           test "$retro_weak_delta" -eq 8
           test "$aggregate_2" -eq "$aggregate_expected"
           '
+
+      - name: Render point-field graphs
+        if: ${{ !cancelled() }}
+        run: |
+          if [[ -f artifacts/ros2-point-fields/data/baseline.json && \
+                -f artifacts/ros2-point-fields/data/aggregate_2.json ]]; then
+            docker run --rm \
+              -e GITHUB_SHA -e GITHUB_REPOSITORY -e GITHUB_RUN_ID -e GITHUB_SERVER_URL \
+              -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_flag_test_$GITHUB_SHA \
+              /opt/pointcloud-plots/bin/python scripts/flag_test/render_point_fields.py \
+                --data-dir artifacts/ros2-point-fields/data \
+                --output-dir artifacts/ros2-point-fields
+          fi
+
+      - name: Save point-field report
+        if: ${{ !cancelled() && hashFiles('artifacts/ros2-point-fields/index.html') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ros2-point-fields
+          path: artifacts/ros2-point-fields
+          retention-days: 14
+
+      - name: Upload GitHub Pages artifact
+        if: ${{ success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: artifacts/ros2-point-fields
+
+  deploy-point-fields:
+    name: Publish point-field graphs
+    needs: driver-parameter-tests
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: ros2-point-fields-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy point-field graphs
+        id: deployment
+        uses: actions/deploy-pages@v5

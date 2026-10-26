@@ -3,8 +3,13 @@ FROM ros:jazzy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-tidy \
     jq \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && git config --global --add safe.directory /app
+
+# The Ubuntu plotly package contains only the basic JS bundle (no Scattergl).
+RUN python3 -m venv /opt/pointcloud-plots \
+    && /opt/pointcloud-plots/bin/pip install --no-cache-dir plotly==5.24.1
 
 WORKDIR /app
 
