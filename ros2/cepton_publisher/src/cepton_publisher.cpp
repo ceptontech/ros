@@ -111,6 +111,11 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct Cepto
   {
     lock_guard<mutex> lock(status_lock_);
     handle_to_serial_number_[handle] = info->serial_number;
+#ifdef WITH_PTP
+    if (info->time_sync_offset != 0) {
+      time_sync_offsets_.emplace(handle, info->time_sync_offset);
+    }
+#endif
   }
 
   auto msg = cepton_messages::msg::CeptonSensorInfo();
@@ -147,12 +152,25 @@ void CeptonPublisher::publish_info(CeptonSensorHandle handle, const struct Cepto
 void CeptonPublisher::publish_points(
   CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points, const CeptonPointEx* points)
 {
+#ifdef WITH_PTP
+  int64_t offset_us = 0;
+#endif
   // Update the sensor status (time when the last points are received).
   // This is used for monitoring sensor timeout.
   {
     lock_guard<mutex> lock(status_lock_);
     last_points_time_[handle] = chrono::system_clock::now();
+
+#ifdef WITH_PTP
+    auto it = time_sync_offsets_.find(handle);
+    if (it != time_sync_offsets_.end()) {
+      offset_us = it->second;
+    }
+#endif
   }
+#ifdef WITH_PTP
+  start_timestamp += offset_us;
+#endif
 
   // Store buffers for PointCloud2 point clouds (output)
   static unordered_map<CeptonSensorHandle, PointCloud2> clouds;
@@ -308,9 +326,9 @@ void CeptonPublisher::publish_points(
     // Keep timestamp progression aligned with the original point order, even
     // when later filters drop this point.
     // Skip the first point's delta; its timestamp is already start_timestamp.
-  if (i != 0){
-    timestamp += points[i].relative_timestamp;
-  }
+    if (i != 0) {
+      timestamp += points[i].relative_timestamp;
+    }
 #endif
 
     // If point has flags that should not be included (specified by the

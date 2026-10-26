@@ -15,6 +15,7 @@ option(WITH_POLAR "Compile point types with polar coordinates" ON)
 option(WITH_TS "Include timestamp fields" ON)
 option(WITH_CH "Include channel ID field" ON)
 option(WITH_F "Include flag field" ON)
+option(WITH_PTP "PTP MODE: ON" ON)
 
 
 # Default to C99
@@ -85,6 +86,9 @@ if (WITH_CH)
 endif()
 if (WITH_F)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_F)
+endif()
+if (WITH_PTP)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_PTP)
 endif()
 
 include_directories(../../cepton-sdk-${SDK_VERSION}/include)

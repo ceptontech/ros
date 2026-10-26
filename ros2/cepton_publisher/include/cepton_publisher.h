@@ -95,6 +95,9 @@ private:
    */
   std::unordered_map<CeptonSensorHandle, std::chrono::time_point<std::chrono::system_clock>>
     last_points_time_;
+#ifdef WITH_PTP
+  std::unordered_map<CeptonSensorHandle, int64_t> time_sync_offsets_;
+#endif
 
   SerialNumberMap handle_to_serial_number_;
 
