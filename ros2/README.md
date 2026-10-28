@@ -162,6 +162,8 @@ expected_sensor_ips:
 #### WITH_TS Fields
 - **timestamp_s** (int32): Timestamp seconds portion
 - **timestamp_us** (int32): Timestamp microseconds portion  
+#### RELATIVE Field
+- **relative_time_us** (uint32): Time in microseconds relative to the PointCloud2 header timestamp
 #### WITH_CH Field
 - **channel_id** (uint16): Sensor channel identifier
 #### WITH_F Field
@@ -197,14 +199,24 @@ Monitoring message with:
 - **`-DWITH_TS=OFF`**: Disable timestamp fields
 - **`-DWITH_CH=OFF`**: Disable channel field
 - **`-DWITH_F=OFF`**: Disable flag field
+- **`-DRELATIVE=ON`**: Include the `relative_time_us` field
+
+#### Legacy Compatibility
+
+`-DWITH_TS_CH_F=ON` or `OFF` enables or disables `WITH_TS`, `WITH_CH`, and
+`WITH_F` together. When it is specified, it takes precedence over the three
+individual options. Omit `WITH_TS_CH_F` to configure those options independently.
 
 ### Build Commands
 ```bash
-# Standard build with all fields
+# Standard build with default fields
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
 
 # Build with filtered fields
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS=OFF -DWITH_CH=OFF -DWITH_F=OFF
+
+# Build with relative point timestamps
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DRELATIVE=ON
 ```
 
 ### Run Commands

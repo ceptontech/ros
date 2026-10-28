@@ -24,7 +24,7 @@ if(NOT WITH_TS_CH_F STREQUAL "")
   set(WITH_F ${WITH_TS_CH_F})
 endif()
 option(WITH_PTP "PTP MODE: ON" ON)
-option(WITH_FRAME_OFFSET "Include frame offset field" OFF)
+option(RELATIVE "Include frame offset field" OFF)
 
 
 # Default to C99
@@ -99,7 +99,7 @@ endif()
 if (WITH_PTP)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_PTP)
 endif()
-if (WITH_FRAME_OFFSET)
+if (RELATIVE)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_FRAME_OFFSET)
 endif()
 

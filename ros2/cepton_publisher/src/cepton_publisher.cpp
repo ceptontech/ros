@@ -239,7 +239,7 @@ void CeptonPublisher::publish_points(
                 #endif
                 #ifdef WITH_FRAME_OFFSET
                 ,
-                "frame_offset_us", 1, PointField::UINT32
+                "relative_time_us", 1, PointField::UINT32
                 #endif
                 #ifdef WITH_CH
                 ,
@@ -278,7 +278,7 @@ void CeptonPublisher::publish_points(
 #endif
 #ifdef WITH_FRAME_OFFSET
   auto frame_offset_usec_iter =
-    sensor_msgs::PointCloud2Iterator<uint32_t>(cloud, "frame_offset_us");
+    sensor_msgs::PointCloud2Iterator<uint32_t>(cloud, "relative_time_us");
 #endif
 #ifdef WITH_CH
   auto channel_id_iter = sensor_msgs::PointCloud2Iterator<uint16_t>(cloud, "channel_id");
