@@ -71,6 +71,10 @@ def render_report(data_dir, output_dir):
         for field in snapshot["fields"]:
             if len(field["values"]) != snapshot["point_count"]:
                 raise ValueError(f"{name}: wrong point count for {field['name']}")
+        field_names = {field["name"] for field in snapshot["fields"]}
+        for required_field in ("timestamp_s", "timestamp_us", "relative_time_us"):
+            if required_field not in field_names:
+                raise ValueError(f"{name}: {required_field} field is missing")
         snapshots[name] = snapshot
 
     field_names = list(dict.fromkeys(
@@ -115,7 +119,7 @@ def render_report(data_dir, output_dir):
         '<p class="muted">ドラッグで拡大、ダブルクリックで範囲をリセット。'
         '広い範囲では各区間の最小値と最大値を描画し、拡大すると個々の点を表示します。'
         '点にカーソルを合わせると番号と値を表示します。'
-        'timestamp_s・timestamp_usは受信した値をそのまま描画します。</p>'
+        'timestamp_s・timestamp_us・relative_time_usは受信した値をそのまま描画します。</p>'
     )
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     commit = os.environ.get("GITHUB_SHA", "local")
@@ -160,7 +164,8 @@ def render_report(data_dir, output_dir):
 
     body = (
         f"<h1>ROS2 PointCloud2 フィールド別グラフ</h1>{instructions}{metadata}"
-        '<section><h2>フィールドを選択</h2><p>各ページで基準と2フレーム集約を上下に表示します。</p>'
+        '<section><h2>フィールドを選択</h2><p>各ページで1フレーム・'
+        '2フレーム集約を上下に表示します。</p>'
         '<table><tr><th>フィールド</th><th>データ型</th></tr>' + "".join(field_rows)
         + f"</table></section>{provenance}"
     )

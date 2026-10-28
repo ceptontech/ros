@@ -43,7 +43,7 @@ jobs:
             --packages-select cepton_messages cepton_publisher \
             --build-base /tmp/cepton_build \
             --install-base /tmp/cepton_install \
-            --cmake-args -DCMAKE_CXX_FLAGS=-DWITH_TS_CH_F
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DWITH_TS=ON -DRELATIVE=ON
 
           set +u
           source /tmp/cepton_install/setup.bash
@@ -136,6 +136,7 @@ jobs:
           test "$retro_delta" -eq 4
           test "$retro_weak_delta" -eq 8
           test "$aggregate_2" -eq "$aggregate_expected"
+
           '
 
       - name: Render point-field graphs

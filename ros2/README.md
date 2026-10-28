@@ -159,12 +159,15 @@ expected_sensor_ips:
 
 ### Optional Fields (compile-time flags)
 
-#### WITH_TS_CH_F Fields
+#### WITH_TS Fields
 - **timestamp_s** (int32): Timestamp seconds portion
 - **timestamp_us** (int32): Timestamp microseconds portion  
-- **flags** (uint16): Point quality flags
+#### RELATIVE Field
+- **relative_time_us** (uint32): Time in microseconds relative to the PointCloud2 header timestamp
+#### WITH_CH Field
 - **channel_id** (uint16): Sensor channel identifier
-
+#### WITH_F Field
+- **flags** (uint16): Point quality flags
 #### WITH_POLAR Fields
 - **azimuth** (float32): Azimuth angle in radians
 - **elevation** (float32): Elevation angle in radians
@@ -193,15 +196,27 @@ Monitoring message with:
 
 ### CMake Flags
 - **`-DWITH_POLAR=OFF`**: Disable polar coordinate fields
-- **`-DWITH_TS_CH_F=OFF`**: Disable timestamp, channel, and flag fields
+- **`-DWITH_TS=OFF`**: Disable timestamp fields
+- **`-DWITH_CH=OFF`**: Disable channel field
+- **`-DWITH_F=OFF`**: Disable flag field
+- **`-DRELATIVE=ON`**: Include the `relative_time_us` field
+
+#### Legacy Compatibility
+
+`-DWITH_TS_CH_F=ON` or `OFF` enables or disables `WITH_TS`, `WITH_CH`, and
+`WITH_F` together. When it is specified, it takes precedence over the three
+individual options. Omit `WITH_TS_CH_F` to configure those options independently.
 
 ### Build Commands
 ```bash
-# Standard build with all fields
+# Standard build with default fields
 colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher
 
 # Build with filtered fields
-colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS_CH_F=OFF
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DWITH_POLAR=OFF -DWITH_TS=OFF -DWITH_CH=OFF -DWITH_F=OFF
+
+# Build with relative point timestamps
+colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher --cmake-args -DRELATIVE=ON
 ```
 
 ### Run Commands

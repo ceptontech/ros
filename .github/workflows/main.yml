@@ -25,7 +25,7 @@ jobs:
             docker run --rm -v "${GITHUB_WORKSPACE}:/app:rw" ci_ros2_$GITHUB_SHA bash -ex -c '
             cd ros2
             colcon build --packages-select cepton_messages cepton_subscriber cepton_publisher \
-              --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release
             '
 
       - name: Include What You Use (clang-tidy misc-include-cleaner)
