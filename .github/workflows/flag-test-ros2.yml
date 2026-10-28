@@ -43,7 +43,7 @@ jobs:
             --packages-select cepton_messages cepton_publisher \
             --build-base /tmp/cepton_build \
             --install-base /tmp/cepton_install \
-            --cmake-args -DCMAKE_BUILD_TYPE=Release -DWITH_TS=ON -DWITH_FRAME_OFFSET=ON
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DWITH_TS=ON -DRELATIVE=ON
 
           set +u
           source /tmp/cepton_install/setup.bash
