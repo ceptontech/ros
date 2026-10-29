@@ -398,6 +398,14 @@ void CeptonPublisher::publish_points(
       continue;
     }
 
+    // Publish no-return points at the origin. Done after the FOV and distance
+    // filters, which need the original coordinates.
+    if ((points[i].flags & CEPTON_POINT_NO_RETURN) != 0) {
+      x = 0.0f;
+      y = 0.0f;
+      z = 0.0f;
+    }
+
     // x value
     *x_iter = x;
     ++x_iter;
