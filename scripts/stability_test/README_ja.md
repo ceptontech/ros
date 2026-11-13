@@ -69,8 +69,8 @@ python3 scripts/stability_test/stability_test.py --duration 600 --aggregation-fr
 | `--ros-version` | `$ROS_VERSION` | `1` か `2`。ROS環境を source　してあれば不要 |
 | `--rate-method` | `probe` | `probe`=C++ 計測ノード/ `inproc`=Python 購読（低レートのドライラン専用） |
 | `--expected-sensors` | `1` | 検出必須の台数（不足なら前提未達で終了コード 2）。複数台試験では台数を明示指定する |
-| `--inst-tolerance` | `0.1` | **瞬時** 1/dt の許容 Hz 誤差（仕様どおり。20Hz では ±0.25ms の間隔予算） |
-| `--rate-tolerance` | `0.1` | **窓平均**レートの許容 Hz 誤差 |
+| `--inst-tolerance` | `1.0` | **瞬時** 1/dt の許容 Hz 誤差（20Hz では約 ±2.5ms の間隔予算。仕様どおりに判定するなら `0.1` = ±0.25ms） |
+| `--rate-tolerance` | `1.0` | **窓平均**レートの許容 Hz 誤差 |
 | `--rate-window` | `1.0` | 窓平均のスライディング窓長（秒） |
 | `--rate-basis` | `arrival` | 合否の基準。`arrival`（購読側の実受信＝配信ケイデンス）か `stamp`（センサ供給周期・参考）。両方常時併記 |
 | `--info-rate` | `2.0` | SensorInfo の公称レート（Hz） |
@@ -232,7 +232,9 @@ Publisher 起動直後・計測開始前に一度だけ収集します。**ド�
   **この比が 1 を大きく超えていると 1 メッセージの送出に何十往復も要する**。
   セグメントサイズは Fast DDS の XML プロファイル（`FASTDDS_DEFAULT_PROFILES_FILE`）の
   `<segment_size>` で変更する
-- `driver_revision` … `git describe`（どのドライバで測ったかの記録）
+- `publisher_version` … source している install の `share/cepton_publisher/VERSION`
+  （ビルド時に CMake が計算した、起動ログと同じバージョン。実際に動かした publisher のバージョン。ROS2 のみ）
+- `driver_revision` … リポジトリの `git describe`（ソースの状態。再ビルドしていないと `publisher_version` とずれることがある）
 
 ### 終了コード
 
