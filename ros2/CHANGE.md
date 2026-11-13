@@ -1,5 +1,24 @@
 # CeptonSdk2 ROS2 Driver Release Notes
 
+## Version 2.3.0
+
+## Version 2.2.0 2026-10-29
+- Changed default point filter parameters.
+  - `include_invalid_points` and `include_noise_points` now default to `true`.
+  - `include_ambient_points` and `include_second_return_points` now default to `false`.
+  - `expected_sensor_ips` is commented out in `parameters.yaml` by default.
+- Added `include_retro_weak_points` parameter (default `true`).
+- Removed the 500 m distance filter.
+- Updated CeptonSDK to 3.0.24.3.
+  - `channel_count` in `CeptonSensorInfo.msg` changed from `uint8` to `uint16`.
+- The publisher/subscriber version string is now read from `package.xml`.
+- Added build options for PointCloud2 fields.
+  - `WITH_POLAR` and `WITH_TS_CH_F` are now applied to the ROS2 publisher.
+  - `WITH_TS_CH_F` is split into `WITH_TS`, `WITH_CH`, and `WITH_F`. `WITH_TS_CH_F` is kept as a legacy switch and takes precedence when specified.
+  - Added `RELATIVE` option (default `OFF`) that adds a `relative_time_us` field: time relative to the PointCloud2 header timestamp.
+  - Added `WITH_PTP` option (default `ON`) that applies the sensor time sync offset to timestamps.
+- Added `fastdds.xml` profile for unstable frame rates.
+
 ## Version 2.1.3 2023-11-3
 - Now allow enabling/disabling of the point cloud topics.
   - Specifically, one can now choose whether to output a combination of PCL2/CEPP/both messages, as well as whether to output via IP/Serial Number/Both for each of the message types.

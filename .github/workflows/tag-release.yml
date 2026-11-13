@@ -1,0 +1,40 @@
+name: Tag release
+
+# Create a git tag v<version> when the version in the ROS2 publisher's
+# package.xml changes on main.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ros2/cepton_publisher/package.xml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create version tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create tag if it does not exist
+        run: |
+          VERSION=$(grep -oP '(?<=<version>)[^<]+' ros2/cepton_publisher/package.xml)
+          if [ -z "${VERSION}" ]; then
+            echo "::error::Could not read version from package.xml"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists. Nothing to do."
+          else
+            git tag "${TAG}"
+            git push origin "${TAG}"
+            echo "Created tag ${TAG}"
+          fi
