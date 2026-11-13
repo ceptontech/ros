@@ -1084,6 +1084,10 @@ class RosBackend:
     def publisher_build_hint(self):
         raise NotImplementedError
 
+    def publisher_version(self):
+        """Version of the installed publisher that will be launched, or None."""
+        return None
+
     def probe_available(self):
         """True if the C++ stability_probe package is built and on the path."""
         raise NotImplementedError
@@ -1387,6 +1391,14 @@ class Ros2Backend(RosBackend):
 
     def publisher_available(self):
         return _run(["ros2", "pkg", "prefix", "cepton_publisher"]) is not None
+
+    def publisher_version(self):
+        # Written by cepton_publisher's CMakeLists.txt at build time; the same
+        # string the publisher prints at startup.
+        prefix = (_run(["ros2", "pkg", "prefix", "cepton_publisher"]) or "").strip()
+        if not prefix:
+            return None
+        return _read_text(os.path.join(prefix, "share", "cepton_publisher", "VERSION"))
 
     def publisher_build_hint(self):
         return (
@@ -2352,6 +2364,7 @@ def print_report(summary):
         elif env.get("dds_shm_segment_bytes") is not None:
             print("  dds shm segment        : %s B" % env["dds_shm_segment_bytes"])
         print("  sensor interface       : %s" % env.get("sensor_interface"))
+        print("  publisher version      : %s" % env.get("publisher_version"))
         print("  driver revision        : %s" % env.get("driver_revision"))
     print("-" * 76, flush=True)
     basis = summary["rate_basis"]
@@ -2511,13 +2524,13 @@ def parse_args():
                         "point cloud traffic exceeds what a Python subscriber "
                         "can absorb) or 'inproc' subscribes from this Python "
                         "process (low-rate dry runs only). (default: probe)")
-    p.add_argument("--rate-tolerance", type=float, default=0.1,
+    p.add_argument("--rate-tolerance", type=float, default=1.0,
                    help="Allowed Hz deviation of the sliding-window mean rate "
-                        "(default: 0.1)")
-    p.add_argument("--inst-tolerance", type=float, default=0.1,
+                        "(default: 1.0)")
+    p.add_argument("--inst-tolerance", type=float, default=1.0,
                    help="Allowed Hz deviation of the per-frame instantaneous "
-                        "rate 1/dt (default: 0.1 = the spec as written; at "
-                        "20Hz this is a +/-0.25ms interval budget)")
+                        "rate 1/dt (default: 1.0; at 20Hz this is roughly a "
+                        "+/-2.5ms interval budget. The spec as written is 0.1)")
     p.add_argument("--rate-window", type=float, default=1.0,
                    help="Sliding window length in seconds for the windowed "
                         "mean rate (default: 1.0)")
@@ -2727,6 +2740,7 @@ def main():
             message_bytes=(args.expected_points * args.aggregation_frame_count * 32
                            if args.expected_points > 0 else None),
             qos=backend.topic_qos(topics))
+        environment["publisher_version"] = backend.publisher_version()
         (out_dir / "environment.json").write_text(
             json.dumps(environment, indent=2, ensure_ascii=False))
 

@@ -171,4 +171,9 @@ install(TARGETS cepton_publisher_node DESTINATION lib/${PROJECT_NAME})
 # Install SDK dependencies to the node location
 install(FILES ${SDK_BINARIES} DESTINATION lib)
 
+# Install the computed version so tools can read the version of the
+# installed publisher: <install>/share/cepton_publisher/VERSION
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/VERSION" "${CEPTON_PUBLISHER_VERSION}\n")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION" DESTINATION share/${PROJECT_NAME})
+
 ament_package()
