@@ -1,5 +1,7 @@
 # CeptonSdk2 ROS2 Driver Release Notes
 
+## Version 2.3.0
+
 ## Version 2.2.0 2026-10-29
 - Changed default point filter parameters.
   - `include_invalid_points` and `include_noise_points` now default to `true`.
