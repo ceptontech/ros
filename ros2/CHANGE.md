@@ -1,6 +1,7 @@
 # CeptonSdk2 ROS2 Driver Release Notes
 
 ## Version 2.3.0
+- Added a GitHub Actions workflow that creates a `v<version>` tag when the version in `cepton_publisher/package.xml` changes on main.
 
 ## Version 2.2.0 2026-10-29
 - Changed default point filter parameters.
