@@ -2,6 +2,8 @@
 
 ## Version 2.3.0
 - Added a GitHub Actions workflow that creates a `v<version>` tag when the version in `cepton_publisher/package.xml` changes on main.
+- The patch version shown at publisher startup is now assigned automatically at build time: the patch number of the latest `vX.Y.Z` tag plus the number of commits since that tag (e.g. tag `v2.3.0` + 5 commits -> `v2.3.5`). If `package.xml` is newer than the latest tag, or git is not available, the `package.xml` version is used as is.
+  - Bump only the major or minor version in `package.xml` by hand, and keep the patch version at 0.
 
 ## Version 2.2.0 2026-10-29
 - Changed default point filter parameters.

@@ -2,6 +2,11 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>cepton_publisher</name>
+  <!--
+  The patch version (3rd number) is assigned automatically at build time (see CMakeLists.txt).
+  To bump the version, manually increment the major or minor version (1st or 2nd number)
+  and keep the patch version at 0.
+  -->
   <version>2.3.0</version>
   <description>
     Implements a publisher for Cepton lidar messages. Publishes Cepton info messages, and point cloud data in PointCloud2 format.

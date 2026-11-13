@@ -4,11 +4,50 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Read the package version from package.xml so it doesn't need to be
-# duplicated in source code
+# Version shown by the publisher at startup.
+# package.xml holds the version set by hand (X.Y.Z). When git is available,
+# the patch number is replaced with the number of commits since the latest
+# vX.Y.Z tag: tag v2.3.0 + 5 commits -> v2.3.5.
+# If package.xml is newer than the latest tag (version bumped but not tagged
+# yet), the package.xml version is used as is.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/package.xml" PACKAGE_XML_CONTENT)
 string(REGEX MATCH "<version>([^<]*)</version>" _ ${PACKAGE_XML_CONTENT})
-set(CEPTON_PUBLISHER_VERSION "v${CMAKE_MATCH_1}")
+set(PACKAGE_XML_VERSION "${CMAKE_MATCH_1}")
+set(CEPTON_PUBLISHER_VERSION "v${PACKAGE_XML_VERSION}")
+
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --long
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_DESCRIBE
+    RESULT_VARIABLE GIT_DESCRIBE_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  # e.g. v2.3.0-5-g1a2b3c4
+  if(GIT_DESCRIBE_RESULT EQUAL 0 AND
+     GIT_DESCRIBE MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9]+)-([0-9]+)-g[0-9a-f]+$")
+    set(TAG_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+    math(EXPR BUILD_PATCH "${CMAKE_MATCH_3} + ${CMAKE_MATCH_4}")
+    if(NOT PACKAGE_XML_VERSION VERSION_GREATER TAG_VERSION)
+      set(CEPTON_PUBLISHER_VERSION "v${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${BUILD_PATCH}")
+    endif()
+  endif()
+
+  # Re-run CMake when HEAD moves (commit, checkout, pull) so the version
+  # does not go stale between colcon builds.
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --absolute-git-dir
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_DIR
+    RESULT_VARIABLE GIT_DIR_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(GIT_DIR_RESULT EQUAL 0 AND EXISTS "${GIT_DIR}/logs/HEAD")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_DIR}/logs/HEAD")
+  endif()
+endif()
+message(STATUS "cepton_publisher version: ${CEPTON_PUBLISHER_VERSION}")
 
 # Example usage: `colcon build --cmake-args -DWITH_POLAR=OFF` to disable polar coordinates.
 option(WITH_POLAR "Compile point types with polar coordinates" ON)
