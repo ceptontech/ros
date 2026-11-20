@@ -64,6 +64,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Publisher versions match (ROS1 and ROS2 package.xml)
+        if: success() || failure()
+        run: |
+            ROS1=$(grep -oP '(?<=<version>)[^<]+' ros/package.xml)
+            ROS2=$(grep -oP '(?<=<version>)[^<]+' ros2/cepton_publisher/package.xml)
+            echo "ros/package.xml: ${ROS1}, ros2/cepton_publisher/package.xml: ${ROS2}"
+            if [ -z "${ROS1}" ] || [ "${ROS1}" != "${ROS2}" ]; then
+              echo "::error::The ROS1 and ROS2 publisher versions must match. Update both package.xml files."
+              exit 1
+            fi
+
       - name: Build docker image
         run: docker build . --tag ci_lint_$GITHUB_SHA -f ci/Dockerfile.lint
 

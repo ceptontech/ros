@@ -34,9 +34,12 @@ enum SensorStatusFlags : uint32_t
 namespace cepton_ros
 {
 
-// update this when making changes, will display in terminal running publisher
+// Version shown at startup. Set by CMake from package.xml and the latest vX.Y.Z tag.
+#ifndef CEPTON_PUBLISHER_VERSION
+#define CEPTON_PUBLISHER_VERSION "unknown"
+#endif
 using String = std::string;
-const String VERSION = "v2.1.1";
+const String VERSION = CEPTON_PUBLISHER_VERSION;
 
 /**
  * Cepton SDK nodelet. Publishes sensor point topics.
