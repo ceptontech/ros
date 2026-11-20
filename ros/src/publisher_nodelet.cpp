@@ -109,8 +109,15 @@ PublisherNodelet::~PublisherNodelet()
   check_api_error(ret, "CeptonDeinitialize");
 
   // Publishing captures this nodelet; finish before its members are destroyed.
-  if (pub_fut_.valid())
-    pub_fut_.wait();
+  {
+    std::lock_guard<std::mutex> lock(sensor_states_mutex_);
+    for (auto& entry : sensor_states_)
+    {
+      std::lock_guard<std::mutex> state_lock(entry.second->mutex);
+      if (entry.second->pub_fut.valid())
+        entry.second->pub_fut.wait();
+    }
+  }
 }
 
 void PublisherNodelet::check_api_error(int err, char const* api)
@@ -491,20 +498,26 @@ void extend_from_points(cepton_ros::Cloud& cloud, int64_t start_timestamp, size_
   cloud.width = cloud.points.size();
 }
 
+PublisherNodelet::SensorState* PublisherNodelet::get_sensor_state(CeptonSensorHandle handle)
+{
+  std::lock_guard<std::mutex> lock(sensor_states_mutex_);
+  auto& state = sensor_states_[handle];
+  if (!state)
+    state = std::make_unique<SensorState>();
+  return state.get();
+}
+
 void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_timestamp, size_t n_points,
                                       const CeptonPointEx* points)
 {
-  // Buffer to build the output cloud
-  static std::unordered_map<CeptonSensorHandle, cepton_ros::Cloud> clouds;
-  static std::unordered_map<CeptonSensorHandle, std::vector<uint64_t>> timestamps;
-  static std::unordered_map<CeptonSensorHandle, PointTimestamp> point_timestamps;
+  SensorState* const state = get_sensor_state(handle);
 
-  // The previous async publisher references these buffers. Wait before reuse.
-  if (pub_fut_.valid())
-    pub_fut_.get();
+  // Callbacks of the same sensor run one at a time. Other sensors are not blocked.
+  std::lock_guard<std::mutex> state_lock(state->mutex);
 
-  // Store the parity of each cloud. This may be used for 2-frames aggregation
-  static std::unordered_map<CeptonSensorHandle, uint8_t> cloud_parity;
+  // The previous async publish of this sensor references its buffers. Wait before reuse.
+  if (state->pub_fut.valid())
+    state->pub_fut.get();
 
   // Update the sensor status
   {
@@ -512,14 +525,9 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
     last_points_time_[handle] = std::chrono::system_clock::now();
   }
 
-  // Update parity
-  if (cloud_parity.find(handle) == cloud_parity.end())
-  {
-    cloud_parity[handle] = 0;
-  }
-  cloud_parity[handle] = 1 - cloud_parity[handle];
-
-  const auto first = cloud_parity[handle] == 1;
+  // Update parity. This may be used for 2-frames aggregation
+  state->parity = 1 - state->parity;
+  const auto first = state->parity == 1;
 
   int64_t ptp_offset = 0;
   {
@@ -529,21 +537,11 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
       ptp_offset = offset->second;
   }
 
-  // Prep the cloud
-  {
-    // Make sure there is an allocated buffer
-    if (clouds.find(handle) == clouds.end())
-      clouds[handle] = cepton_ros::Cloud();
-
-    // Modify the same cloud buffer each time to avoid realloc
-    auto& cloud = clouds[handle];
-
-    // Add the new points
-    const bool reset_cloud = first || !aggregate_frames_;
-    extend_from_points(cloud, start_timestamp, n_points, points, reset_cloud, min_distance_, max_distance_,
-                       min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_, ptp_offset,
-                       timestamp_mode_, timestamps[handle], point_timestamps[handle]);
-  }
+  // Add the new points. The same cloud buffer is modified each time to avoid realloc
+  const bool reset_cloud = first || !aggregate_frames_;
+  extend_from_points(state->cloud, start_timestamp, n_points, points, reset_cloud, min_distance_, max_distance_,
+                     min_image_x_, max_image_x_, min_image_z_, max_image_z_, include_flag_, ptp_offset, timestamp_mode_,
+                     state->timestamps, state->point_timestamp);
 
   // If not ready to publish, return
   if (aggregate_frames_ && first)
@@ -551,52 +549,69 @@ void PublisherNodelet::publish_points(CeptonSensorHandle handle, int64_t start_t
     return;
   }
 
-  // Publish the point cloud
+  // Copy the per-sensor publishers so the async publish does not touch the maps
+  // while publish_sensor_info() may be inserting into them.
+  ros::Publisher handle_publisher;
+  ros::Publisher serial_publisher;
   {
-    // Launch a new process to do the publishing
-    pub_fut_ = std::async(std::launch::async, [this, handle]() {
-      auto const& cloud = clouds[handle];
-
-      if (timestamp_mode_ != TimestampMode::Legacy)
-      {
-        sensor_msgs::PointCloud2 msg;
-        pcl::toROSMsg(cloud, msg);
-        remove_point_field(msg, "relative_timestamp");
-        if (timestamp_mode_ == TimestampMode::Relative)
-        {
-          std::vector<uint32_t> frame_offsets(timestamps[handle].begin(), timestamps[handle].end());
-          append_timestamp_field(msg, "frame_offset_us", sensor_msgs::PointField::UINT32, frame_offsets);
-        }
-        else
-        {
-          std::vector<double> timestamp;
-          timestamp.reserve(timestamps[handle].size());
-          for (const auto timestamp_us : timestamps[handle])
-          {
-            timestamp.push_back(static_cast<double>(timestamp_us) / 1000000.0);
-          }
-          append_timestamp_field(msg, "timestamp", sensor_msgs::PointField::FLOAT64, timestamp);
-        }
-        points_publisher_.publish(msg);
-        if (handle_points_publisher_.count(handle) && output_by_handle_)
-          handle_points_publisher_[handle].publish(msg);
-        if (serial_points_publisher_.count(handle) && output_by_sn_)
-          serial_points_publisher_[handle].publish(msg);
-        return;
-      }
-
-      // Publish points
-      points_publisher_.publish(cloud);
-
-      // Publish by handle
-      if (handle_points_publisher_.count(handle) && output_by_handle_)
-        handle_points_publisher_[handle].publish(cloud);
-
-      // Publish by serial number
-      if (serial_points_publisher_.count(handle) && output_by_sn_)
-        serial_points_publisher_[handle].publish(cloud);
-    });
+    std::lock_guard<std::mutex> lock(publishers_mutex_);
+    if (output_by_handle_)
+    {
+      const auto it = handle_points_publisher_.find(handle);
+      if (it != handle_points_publisher_.end())
+        handle_publisher = it->second;
+    }
+    if (output_by_sn_)
+    {
+      const auto it = serial_points_publisher_.find(handle);
+      if (it != serial_points_publisher_.end())
+        serial_publisher = it->second;
+    }
   }
+
+  // Launch a new thread to do the publishing
+  state->pub_fut = std::async(std::launch::async, [this, state, handle_publisher, serial_publisher]() {
+    auto const& cloud = state->cloud;
+
+    if (timestamp_mode_ != TimestampMode::Legacy)
+    {
+      sensor_msgs::PointCloud2 msg;
+      pcl::toROSMsg(cloud, msg);
+      remove_point_field(msg, "relative_timestamp");
+      if (timestamp_mode_ == TimestampMode::Relative)
+      {
+        std::vector<uint32_t> frame_offsets(state->timestamps.begin(), state->timestamps.end());
+        append_timestamp_field(msg, "frame_offset_us", sensor_msgs::PointField::UINT32, frame_offsets);
+      }
+      else
+      {
+        std::vector<double> timestamp;
+        timestamp.reserve(state->timestamps.size());
+        for (const auto timestamp_us : state->timestamps)
+        {
+          timestamp.push_back(static_cast<double>(timestamp_us) / 1000000.0);
+        }
+        append_timestamp_field(msg, "timestamp", sensor_msgs::PointField::FLOAT64, timestamp);
+      }
+      points_publisher_.publish(msg);
+      if (handle_publisher)
+        handle_publisher.publish(msg);
+      if (serial_publisher)
+        serial_publisher.publish(msg);
+      return;
+    }
+
+    // Publish points
+    points_publisher_.publish(cloud);
+
+    // Publish by handle
+    if (handle_publisher)
+      handle_publisher.publish(cloud);
+
+    // Publish by serial number
+    if (serial_publisher)
+      serial_publisher.publish(cloud);
+  });
 }
 
 void PublisherNodelet::publish_sensor_info(const CeptonSensor* info)
@@ -612,28 +627,35 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info)
     handle_to_serial_number_[info->handle] = info->serial_number;
   }
 
-  // Create a points publisher by handle
-  if (handle_points_publisher_.find(info->handle) == handle_points_publisher_.end() && output_by_handle_)
+  ros::Publisher info_publisher;
   {
-    auto handle_topic_name = "cepton3/points_handle_" + std::to_string(info->handle);
-    handle_points_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
-        info->handle, node_handle_.advertise<cepton_ros::Cloud>(handle_topic_name, 2)));
-  }
+    std::lock_guard<std::mutex> lock(publishers_mutex_);
 
-  // Create a points publisher by serial number
-  if (serial_points_publisher_.find(info->handle) == serial_points_publisher_.end() && output_by_sn_)
-  {
-    auto sn_topic_name = "cepton3/points_sn_" + std::to_string(info->serial_number);
-    serial_points_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
-        info->handle, node_handle_.advertise<cepton_ros::Cloud>(sn_topic_name, 2)));
-  }
+    // Create a points publisher by handle
+    if (handle_points_publisher_.find(info->handle) == handle_points_publisher_.end() && output_by_handle_)
+    {
+      auto handle_topic_name = "cepton3/points_handle_" + std::to_string(info->handle);
+      handle_points_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
+          info->handle, node_handle_.advertise<cepton_ros::Cloud>(handle_topic_name, 2)));
+    }
 
-  // Create an info publisher by handle
-  if (handle_info_publisher_.find(info->handle) == handle_info_publisher_.end())
-  {
-    auto info_topic_name = "cepton3/info_handle_" + std::to_string(info->serial_number);
-    handle_info_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
-        info->handle, node_handle_.advertise<cepton_ros::SensorInformation>(info_topic_name, 2)));
+    // Create a points publisher by serial number
+    if (serial_points_publisher_.find(info->handle) == serial_points_publisher_.end() && output_by_sn_)
+    {
+      auto sn_topic_name = "cepton3/points_sn_" + std::to_string(info->serial_number);
+      serial_points_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
+          info->handle, node_handle_.advertise<cepton_ros::Cloud>(sn_topic_name, 2)));
+    }
+
+    // Create an info publisher by handle
+    if (handle_info_publisher_.find(info->handle) == handle_info_publisher_.end())
+    {
+      auto info_topic_name = "cepton3/info_handle_" + std::to_string(info->serial_number);
+      handle_info_publisher_.insert(std::pair<CeptonSensorHandle, ros::Publisher>(
+          info->handle, node_handle_.advertise<cepton_ros::SensorInformation>(info_topic_name, 2)));
+    }
+
+    info_publisher = handle_info_publisher_[info->handle];
   }
 
   cepton_ros::SensorInformation msg;
@@ -658,7 +680,7 @@ void PublisherNodelet::publish_sensor_info(const CeptonSensor* info)
   sensor_info_publisher_.publish(msg);
 
   // Publish on the sensor-specific topic
-  handle_info_publisher_[info->handle].publish(msg);
+  info_publisher.publish(msg);
 }
 
 }  // namespace cepton_ros
