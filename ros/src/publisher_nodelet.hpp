@@ -11,6 +11,7 @@
 #include <chrono>
 #include <future>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <numeric>
 #include <string>
@@ -156,10 +157,37 @@ private:
   /** Optional set of expected IPs. Useful for detecting time-out */
   std::vector<std::string> expected_sensor_ips_;
 
-  /** Future for the publish process */
-  std::future<void> pub_fut_;
+  /**
+   * Per-sensor buffers used to build the output cloud.
+   *
+   * Each sensor has its own buffers and its own in-flight publish, so a slow
+   * publish of one sensor does not block the other sensors. `mutex` serializes
+   * the callbacks of the same sensor. The async publish reads the buffers
+   * without holding `mutex`; the next callback of the same sensor waits for
+   * `pub_fut` before touching them.
+   */
+  struct SensorState
+  {
+    std::mutex mutex;
+    cepton_ros::Cloud cloud;
+    std::vector<uint64_t> timestamps;
+    PointTimestamp point_timestamp;
+    /** Parity of the cloud, used for 2-frames aggregation */
+    uint8_t parity{ 0 };
+    /** Future for the in-flight publish of this sensor */
+    std::future<void> pub_fut;
+  };
 
-  void publish_async(CeptonSensorHandle handle);
+  /** Get (or create) the state of a sensor. The returned pointer stays valid until the nodelet is destroyed. */
+  SensorState* get_sensor_state(CeptonSensorHandle handle);
+
+  /** Guards the map itself (not the states it holds) */
+  std::mutex sensor_states_mutex_;
+  /** unique_ptr keeps each state's address stable across rehashes */
+  std::unordered_map<CeptonSensorHandle, std::unique_ptr<SensorState>> sensor_states_;
+
+  /** Guards handle_points_publisher_, serial_points_publisher_ and handle_info_publisher_ */
+  std::mutex publishers_mutex_;
 
   std::mutex status_lock_;
 
